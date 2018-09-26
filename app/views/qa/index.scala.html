@@ -1,15 +1,11 @@
 @(questions: Paginator[lila.qa.Question], popular: List[lila.qa.Question])(implicit ctx: Context)
 
-@side = {
-@popularBox(popular)
-}
-
 @layout(
-title = trans.questionsAndAnswers.str(),
-moreJs = jsTag("vendor/jquery.infinitescroll.min.js"),
-side = side.some,
+title = trans.questionsAndAnswers.txt(),
+moreJs = infiniteScrollTag,
+side = popularBox(popular).some,
 openGraph = lila.app.ui.OpenGraph(
-title = trans.questionsAndAnswers.str(),
+title = trans.questionsAndAnswers.txt(),
 url = s"$netBaseUrl${routes.QaQuestion.index().url}",
 description = "Community knowledge and frequently asked questions about lichess.org").some) {
 

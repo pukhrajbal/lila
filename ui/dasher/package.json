@@ -5,17 +5,17 @@
   "author": "Thibault Duplessis",
   "license": "AGPL-3.0",
   "dependencies": {
-    "snabbdom": "ornicar/snabbdom.git#lilabuild"
+    "snabbdom": "ornicar/snabbdom#0.7.1-lichess"
   },
   "devDependencies": {
     "@types/jquery": "^2.0",
     "@types/jqueryui": "^1.11",
     "browserify": "^14",
     "gulp": "^3",
-    "gulp-uglify": "^2",
+    "gulp-uglify": "^3",
     "gulp-util": "^3",
     "tsify": "^3",
-    "types": "file:../types",
+    "@types/lichess": "1.0.0",
     "typescript": "^2",
     "vinyl-buffer": "^1",
     "vinyl-source-stream": "^1",

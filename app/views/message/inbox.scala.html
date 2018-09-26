@@ -1,7 +1,7 @@
 @(me: User, threads: Paginator[lila.message.Thread])(implicit ctx: Context)
 
 @message.layout(
-title = trans.inbox.str()) {
+title = trans.inbox.txt()) {
 <div id="lichess_message" class="content_box no_padding">
   <div class="head with_actions">
     <h1>@trans.inbox()</h1>
@@ -39,7 +39,7 @@ title = trans.inbox.str()) {
         <td class="subject">
           <a href="@routes.Message.thread(thread.id)#bottom">@thread.name</a>
         </td>
-        <td class="date">@momentFormat(thread.updatedAt)</td>
+        <td class="date">@momentFromNow(thread.updatedAt)</td>
         <td class="check">
           <input type="checkbox" name="threads" value="@thread.id" />
         </td>

@@ -2,13 +2,12 @@ export interface GameData {
   game: Game;
   player: Player;
   opponent: Player;
-  spectator: boolean;
+  spectator?: boolean;
   tournament?: Tournament;
   simul?: Simul;
   takebackable: boolean;
   clock?: Clock;
-  analysis?: Analysis;
-  userAnalysis: boolean;
+  correspondence?: CorrespondenceClock;
 }
 
 export interface Game {
@@ -16,7 +15,7 @@ export interface Game {
   status: Status;
   player: Color;
   turns: number;
-  startedAtTurn: number;
+  startedAtTurn?: number;
   source: Source;
   speed: Speed;
   variant: Variant;
@@ -24,6 +23,11 @@ export interface Game {
   moveCentis?: number[];
   initialFen?: string;
   importedBy?: string;
+  threefold?: boolean;
+  boosted?: boolean;
+  rematch?: string;
+  rated?: boolean;
+  perf: string;
 }
 
 export interface Status {
@@ -40,37 +44,75 @@ export type StatusId = number;
 export interface Player {
   id: string;
   name: string;
-  user: User;
-  spectator: boolean;
+  user?: PlayerUser;
+  spectator?: boolean;
   color: Color;
-  proposingTakeback: boolean;
-  offeringDraw: boolean;
-  ai: boolean;
+  proposingTakeback?: boolean;
+  offeringRematch?: boolean;
+  offeringDraw?: boolean;
+  ai: number | null;
   onGame: boolean;
   isGone: boolean;
   blurs?: Blurs;
   hold?: Hold;
   ratingDiff?: number;
+  checks?: number;
+  rating?: number;
+  provisional?: string;
+  engine?: boolean;
+  berserk?: boolean;
+  version: number;
+}
+
+export interface TournamentRanks {
+  white: number;
+  black: number;
 }
 
 export interface Tournament {
+  id: string;
   berserkable: boolean;
+  ranks?: TournamentRanks;
+  running?: boolean;
+  nbSecondsForFirstMove?: number;
 }
 
 export interface Simul {
+  id: string;
   name: string;
   hostId: string;
   nbPlaying: number;
 }
 
 export interface Clock {
+  running: boolean;
+}
+export interface CorrespondenceClock {
+  daysPerTurn: number;
+  increment: number;
+  white: number;
+  black: number;
 }
 
 export type Source = 'import' | 'lobby' | 'pool';
 
-export interface User {
+export interface PlayerUser {
+  id: string;
   online: boolean;
   username: string;
+  patron?: boolean;
+  title?: string;
+  perfs: {
+    [key: string]: Perf;
+  }
+}
+
+export interface Perf {
+  games: number;
+  rating: number;
+  rd: number;
+  prog: number;
+  prov?: boolean;
 }
 
 export interface Ctrl {
@@ -98,16 +140,4 @@ export type ContinueMode = 'friend' | 'ai';
 
 export interface GameView {
   status(ctrl: Ctrl): string;
-}
-
-export interface Analysis {
-  white: AnalysisSide;
-  black: AnalysisSide;
-}
-
-export interface AnalysisSide {
-  acpl: number;
-  inaccuracy: number;
-  mistake: number;
-  blunder: number;
 }

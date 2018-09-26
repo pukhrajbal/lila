@@ -33,16 +33,17 @@ final class StudyRepo(private[study] val coll: Coll) {
 
   def cursor(
     selector: Bdoc,
-    readPreference: ReadPreference = ReadPreference.secondaryPreferred
+    readPreference: ReadPreference = ReadPreference.secondaryPreferred,
+    sort: Bdoc = $empty
   )(implicit cp: CursorProducer[Study]) =
-    coll.find(selector).cursor[Study](readPreference)
+    coll.find(selector).sort(sort).cursor[Study](readPreference)
 
   def exists(id: Study.Id) = coll.exists($id(id))
 
   private[study] def selectOwnerId(ownerId: User.ID) = $doc("ownerId" -> ownerId)
   private[study] def selectMemberId(memberId: User.ID) = $doc("uids" -> memberId)
   private[study] val selectPublic = $doc("visibility" -> VisibilityHandler.write(Study.Visibility.Public))
-  private[study] val selectPrivate = $doc("visibility" -> VisibilityHandler.write(Study.Visibility.Private))
+  private[study] val selectPrivateOrUnlisted = "visibility" $ne VisibilityHandler.write(Study.Visibility.Public)
   private[study] def selectLiker(userId: User.ID) = $doc("likers" -> userId)
   private[study] def selectContributorId(userId: User.ID) =
     selectMemberId(userId) ++ // use the index
@@ -69,6 +70,8 @@ final class StudyRepo(private[study] val coll: Coll) {
   )).void
 
   def delete(s: Study): Funit = coll.remove($id(s.id)).void
+
+  def deleteByIds(ids: List[Study.Id]): Funit = coll.remove($inIds(ids)).void
 
   def membersById(id: Study.Id): Fu[Option[StudyMembers]] =
     coll.primitiveOne[StudyMembers]($id(id), "members")
@@ -110,13 +113,17 @@ final class StudyRepo(private[study] val coll: Coll) {
 
   private val idNameProjection = $doc("name" -> true)
 
+  def publicIdNames(ids: List[Study.Id]): Fu[List[Study.IdName]] =
+    coll.find($inIds(ids) ++ selectPublic, idNameProjection).list[Study.IdName]()
+
   def recentByOwner(userId: User.ID, nb: Int) =
-    coll.find(
-      selectOwnerId(userId),
-      idNameProjection
-    )
+    coll.find(selectOwnerId(userId), idNameProjection)
       .sort($sort desc "updatedAt")
       .list[Study.IdName](nb, ReadPreference.secondaryPreferred)
+
+  // heavy AF. Only use for GDPR.
+  private[study] def allIdsByOwner(userId: User.ID): Fu[List[Study.Id]] =
+    coll.distinct[Study.Id, List]("_id", selectOwnerId(userId).some)
 
   def recentByContributor(userId: User.ID, nb: Int) =
     coll.find(
@@ -126,11 +133,17 @@ final class StudyRepo(private[study] val coll: Coll) {
       .sort($sort desc "updatedAt")
       .list[Study.IdName](nb, ReadPreference.secondaryPreferred)
 
+  def isContributor(studyId: Study.Id, userId: User.ID) =
+    coll.exists($id(studyId) ++ $doc(s"members.$userId.role" -> "w"))
+
+  def isMember(studyId: Study.Id, userId: User.ID) =
+    coll.exists($id(studyId) ++ (s"members.$userId" $exists true))
+
   def like(studyId: Study.Id, userId: User.ID, v: Boolean): Fu[Study.Likes] =
     countLikes(studyId).flatMap {
       case None => fuccess(Study.Likes(0))
       case Some((prevLikes, createdAt)) =>
-        val likes = Study.Likes(prevLikes.value + v.fold(1, -1))
+        val likes = Study.Likes(prevLikes.value + (if (v) 1 else -1))
         coll.update(
           $id(studyId),
           $set(
@@ -161,16 +174,16 @@ final class StudyRepo(private[study] val coll: Coll) {
   }
 
   private def countLikes(studyId: Study.Id): Fu[Option[(Study.Likes, DateTime)]] =
-    coll.aggregate(
+    coll.aggregateOne(
       Match($id(studyId)),
       List(Project($doc(
         "_id" -> false,
         "likes" -> $doc("$size" -> "$likers"),
         "createdAt" -> true
       )))
-    ).map { res =>
+    ).map { docOption =>
         for {
-          doc <- res.firstBatch.headOption
+          doc <- docOption
           likes <- doc.getAs[Study.Likes]("likes")
           createdAt <- doc.getAs[DateTime]("createdAt")
         } yield likes -> createdAt

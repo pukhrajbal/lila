@@ -6,9 +6,11 @@ import reactivemongo.bson._
 
 import org.joda.time.DateTime
 
+import lila.common.MaxPerPage
 import lila.common.paginator._
 import lila.db.dsl._
 import lila.db.paginator._
+import lila.security.Granter
 import lila.user.User
 
 final class QaApi(
@@ -19,11 +21,9 @@ final class QaApi(
     notifier: Notifier
 ) {
 
-  object question {
+  import QaApi._
 
-    private implicit val commentBSONHandler = Macros.handler[Comment]
-    private implicit val voteBSONHandler = Macros.handler[Vote]
-    private[qa] implicit val questionBSONHandler = Macros.handler[Question]
+  object question {
 
     def create(data: QuestionData, user: User): Fu[Question] =
       lila.db.Util findNextId questionColl flatMap { id =>
@@ -73,17 +73,17 @@ final class QaApi(
 
     def count: Fu[Int] = questionColl.count(None)
 
-    def recentPaginator(page: Int, perPage: Int): Fu[Paginator[Question]] =
+    def recentPaginator(page: Int, perPage: MaxPerPage): Fu[Paginator[Question]] =
       paginator($empty, $doc("createdAt" -> -1), page, perPage)
 
-    private def paginator(selector: Bdoc, sort: Bdoc, page: Int, perPage: Int): Fu[Paginator[Question]] =
+    private def paginator(selector: Bdoc, sort: Bdoc, page: Int, perPage: MaxPerPage): Fu[Paginator[Question]] =
       Paginator(
         adapter = new Adapter[Question](
-        collection = questionColl,
-        selector = selector,
-        projection = $empty,
-        sort = sort
-      ),
+          collection = questionColl,
+          selector = selector,
+          projection = $empty,
+          sort = sort
+        ),
         currentPage = page,
         maxPerPage = perPage
       )
@@ -91,8 +91,8 @@ final class QaApi(
     private def popularCache = mongoCache[Int, List[Question]](
       prefix = "qa:popular",
       f = nb => questionColl.find($empty)
-      .sort($doc("vote.score" -> -1))
-      .cursor[Question]().gather[List](nb),
+        .sort($doc("vote.score" -> -1))
+        .cursor[Question]().gather[List](nb),
       timeToLive = 6 hour,
       keyToString = _.toString
     )
@@ -107,26 +107,17 @@ final class QaApi(
     def byTags(tags: List[String], max: Int): Fu[List[Question]] =
       questionColl.find($doc("tags" $in tags.map(_.toLowerCase))).cursor[Question]().gather[List](max)
 
-    def addComment(c: Comment)(q: Question) = questionColl.update(
-      $doc("_id" -> q.id),
-      $doc("$push" -> $doc("comments" -> c))
-    )
+    def addComment(c: Comment)(q: Question) = questionColl.update($id(q.id), $push("comments" -> c))
 
     def vote(id: QuestionId, user: User, v: Boolean): Fu[Option[Vote]] =
       question findById id flatMap {
         _ ?? { q =>
           val newVote = q.vote.add(user.id, v)
-          questionColl.update(
-            $doc("_id" -> q.id),
-            $doc("$set" -> $doc("vote" -> newVote))
-          ) inject newVote.some
+          questionColl.update($id(q.id), $set("vote" -> newVote)) inject newVote.some
         }
       }
 
-    def incViews(q: Question) = questionColl.update(
-      $id(q.id),
-      $doc("$inc" -> $doc("views" -> BSONInteger(1)))
-    )
+    def incViews(q: Question) = questionColl.update($id(q.id), $inc("views" -> 1))
 
     def recountAnswers(id: QuestionId) = answer.countByQuestionId(id) flatMap {
       setAnswers(id, _)
@@ -134,16 +125,14 @@ final class QaApi(
 
     def setAnswers(id: QuestionId, nb: Int) = questionColl.update(
       $id(id),
-      $doc(
-        "$set" -> $doc(
-          "answers" -> BSONInteger(nb),
-          "updatedAt" -> DateTime.now
-        )
+      $set(
+        "answers" -> nb,
+        "updatedAt" -> DateTime.now
       )
     ).void
 
     def remove(id: QuestionId) =
-      questionColl.remove($doc("_id" -> id)) >>
+      questionColl.remove($id(id)) >>
         (answer removeByQuestion id) >>- {
           tag.clearCache
           relation.clearCache
@@ -151,8 +140,21 @@ final class QaApi(
 
     def removeComment(id: QuestionId, c: CommentId) = questionColl.update(
       $id(id),
-      $doc("$pull" -> $doc("comments" -> $doc("id" -> c)))
+      $pull("comments" -> $doc("id" -> c))
     )
+
+    def lock(id: QuestionId, by: Option[User]): Funit =
+      questionColl.update($id(id), by match {
+        case None => $unset("locked")
+        case Some(u) => $set("locked" -> Locked(by = u.id, at = DateTime.now))
+      }).void
+
+    def erase(user: User) = questionColl.distinct[QuestionId, List]("_id", $doc("userId" -> user.id).some).flatMap { ids =>
+      (ids.nonEmpty) ?? {
+        questionColl.remove($inIds(ids)) >>
+          answerColl.remove($doc("questionId" $in ids)).void
+      }
+    }
   }
 
   object answer {
@@ -172,7 +174,8 @@ final class QaApi(
           comments = Nil,
           acceptedAt = None,
           createdAt = DateTime.now,
-          editedAt = None
+          editedAt = None,
+          modIcon = (~data.modIcon && Granter.apply(_.PublicMod)(user)).option(true)
         )
 
         (answerColl insert a) >>
@@ -267,6 +270,8 @@ final class QaApi(
 
     def countByQuestionId(id: QuestionId) =
       answerColl.count(Some($doc("questionId" -> id)))
+
+    def erase(user: User) = answerColl.remove($doc("userId" -> user.id))
   }
 
   object comment {
@@ -311,16 +316,15 @@ final class QaApi(
     def all: Fu[List[Tag]] = cache.get
 
     private def fetch: Fu[List[Tag]] = {
-      val col = questionColl
       import reactivemongo.api.collections.bson.BSONBatchCommands.AggregationFramework.{ AddFieldToSet, Group, Project, UnwindField }
-
-      col.aggregate(Project($doc("tags" -> BSONBoolean(true))), List(
-        UnwindField("tags"), Group(
-          BSONBoolean(true)
-        )("tags" -> AddFieldToSet("tags"))
-      )).
-        map(_.firstBatch.headOption.flatMap(_.getAs[List[String]]("tags")).
-          getOrElse(List.empty[String]).map(_.toLowerCase).distinct)
+      questionColl.aggregateOne(
+        Project($doc("tags" -> true)),
+        List(
+          UnwindField("tags"), Group(BSONBoolean(true))("tags" -> AddFieldToSet("tags"))
+        )
+      ).map { doc =>
+          (~doc.flatMap(_.getAs[List[String]]("tags"))).map(_.toLowerCase).distinct
+        }
     }
   }
 
@@ -346,4 +350,12 @@ final class QaApi(
 
     def clearCache = cache.invalidateAll
   }
+}
+
+object QaApi {
+
+  implicit val commentBSONHandler: BSONDocumentHandler[Comment] = Macros.handler[Comment]
+  implicit val voteBSONHandler: BSONDocumentHandler[Vote] = Macros.handler[Vote]
+  implicit val lockedBSONHandler: BSONDocumentHandler[Locked] = Macros.handler[Locked]
+  implicit val questionBSONHandler: BSONDocumentHandler[Question] = Macros.handler[Question]
 }

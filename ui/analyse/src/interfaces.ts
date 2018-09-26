@@ -1,84 +1,108 @@
-import { GameData } from 'game';
-import { StoredBooleanProp } from 'common';
-import Autoplay from './autoplay';
-import { Api as ChessgroundApi } from 'chessground/api';
-import { CevalController } from 'ceval';
+import { Player, Status, Source } from 'game';
+import * as cg from 'chessground/types';
+import { ForecastData } from './forecast/interfaces';
+import { StudyPracticeData, Goal as PracticeGoal } from './study/practice/interfaces';
+import { RelayData } from './study/relay/interfaces';
 
-export interface AnalyseController {
-  study?: Study;
-  studyPractice?: StudyPractice;
-  socket: Socket;
-  vm: Vm;
-  jumpToIndex(index: number): void;
-  userJumpIfCan(path: Tree.Path): void;
-  userJump(path: Tree.Path): void;
-  jump(path: Tree.Path): void;
-  toggleRetro(): void;
-  jumpToGlyphSymbol(color: Color, symbol: string): void;
-  togglePlay(delay: AutoplayDelay): void;
-  flip(): void;
-  getCeval(): CevalController | undefined;
-  mandatoryCeval(): boolean;
-  toggleComputer(): void;
-  toggleGauge(): void;
-  toggleAutoShapes(v: boolean): void;
-  cevalSetInfinite(v: boolean): void;
-  cevalSetThreads(v: number): void;
-  cevalSetMultiPv(v: number): void;
-  cevalSetHashSize(v: number): void;
-  encodeNodeFen(): string;
+export type MaybeVNode = VNode | string | null | undefined;
+export type MaybeVNodes = MaybeVNode[]
 
-  trans(key: string): string;
+export { Key, Piece } from 'chessground/types';
+import { VNode } from 'snabbdom/vnode'
 
-  data: GameData;
-  tree: any; // TODO: Tree.Tree;
-  userId: string;
-  retro: RetroController | null;
-  autoplay: Autoplay;
-  embed: boolean;
-  ongoing: boolean;
-  chessground: ChessgroundApi;
+// similar, but not identical, to game/GameData
+export interface AnalyseData {
+  game: Game;
+  player: Player;
+  opponent: Player;
+  orientation: Color;
+  spectator?: boolean; // for compat with GameData, for game functions
+  takebackable: boolean;
+  analysis?: Analysis;
+  userAnalysis: boolean;
+  forecast?: ForecastData;
+  treeParts: Tree.Node[];
+  evalPut?: boolean;
+  practiceGoal?: PracticeGoal;
+  pref: any;
+}
+
+export interface ServerEvalData {
+  ch: string;
+  analysis?: Analysis;
+  tree: Tree.Node;
+  division?: Division;
+}
+
+// similar, but not identical, to game/Game
+export interface Game {
+  id: string;
+  status: Status;
+  player: Color;
+  turns: number;
+  source: Source;
+  speed: Speed;
+  variant: Variant;
+  winner?: Color;
+  moveCentis?: number[];
+  initialFen?: string;
+  importedBy?: string;
+  division?: Division;
+  opening?: Opening;
+  perf: string;
+}
+
+export interface Opening {
+  name: string;
+  eco: string;
+  ply: number;
+}
+
+export interface Division {
+  middle?: number;
+  end?: number
+}
+
+export interface Analysis {
+  id: string;
+  white: AnalysisSide;
+  black: AnalysisSide;
+  partial: boolean;
+}
+
+export interface AnalysisSide {
+  acpl: number;
+  inaccuracy: number;
+  mistake: number;
+  blunder: number;
 }
 
 export interface AnalyseOpts {
-  element: Element;
-  sideElement: Element;
+  element: HTMLElement;
+  sideElement: HTMLElement;
+  data: AnalyseData;
+  initialPly?: number | string;
+  userId: string | null;
+  embed: boolean;
+  explorer: boolean;
+  socketSend: SocketSend;
+  trans: Trans;
+  study?: any;
+  tagTypes?: string;
+  practice?: StudyPracticeData;
+  onToggleComputer?: (v: boolean) => void;
+  relay?: RelayData;
 }
 
-export interface Study {
-  setChapter(id: string): void;
-  currentChapter(): StudyChapter;
-  data: StudyData;
+export interface CgDests {
+  [key: string]: cg.Key[]
 }
 
-export interface StudyData {
-  id: string;
+export interface JustCaptured extends cg.Piece {
+  promoted?: boolean;
 }
 
-export interface StudyChapter {
-  id: string;
-}
+export type Conceal = boolean | 'conceal' | 'hide' | null;
+export type ConcealOf = (isMainline: boolean) => (path: Tree.Path, node: Tree.Node) => Conceal;
 
-export interface StudyPractice {
-}
-
-export interface Socket {
-  receive(type: string, data: any): void;
-}
-
-export interface Vm {
-  path: Tree.Path;
-  node: Tree.Node;
-  mainline: Tree.Node[];
-  onMainline: boolean;
-  nodeList: Tree.Node[];
-  showComputer: StoredBooleanProp;
-  showAutoShapes: StoredBooleanProp;
-  showGauge: StoredBooleanProp;
-}
-
-export interface RetroController {
-}
-
-export type AutoplayDelay = number | 'realtime' | 'cpl_fast' | 'cpl_slow' |
-                            'fast' | 'slow';
+export type Redraw = () => void;

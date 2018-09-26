@@ -13,8 +13,10 @@ export default class Protocol {
   private work: Work | null = null;
   private curEval: Tree.ClientEval | null = null;
   private expectedPvs = 1;
-  private stopped: Deferred<void> | null;
+  private stopped: DeferPromise.Deferred<void> | null;
   private opts: WorkerOpts;
+
+  public engineName: string | undefined;
 
   constructor(send: (cmd: string) => void, opts: WorkerOpts) {
     this.send = send;
@@ -22,6 +24,13 @@ export default class Protocol {
 
     this.stopped = defer<void>();
     this.stopped.resolve();
+
+    // get engine name/version
+    send('uci');
+
+    // analyse without contempt
+    send('setoption name UCI_AnalyseMode value true');
+    send('setoption name Analysis Contempt value Off');
 
     if (opts.variant === 'fromPosition' || opts.variant === 'chess960')
       send('setoption name UCI_Chess960 value true');
@@ -31,14 +40,14 @@ export default class Protocol {
       send('setoption name UCI_Variant value 3check');
     else if (opts.variant !== 'standard')
       send('setoption name UCI_Variant value ' + opts.variant.toLowerCase());
-    else
-      send('isready'); // warm up the webworker
   }
 
   received(text: string) {
-    if (text.indexOf('bestmove ') === 0) {
+    if (text.indexOf('id name ') === 0) this.engineName = text.substring('id name '.length);
+    else if (text.indexOf('bestmove ') === 0) {
       if (!this.stopped) this.stopped = defer<void>();
       this.stopped.resolve();
+      if (this.work && this.curEval) this.work.emit(this.curEval);
       return;
     }
     if (!this.work) return;
@@ -53,7 +62,10 @@ export default class Protocol {
         evalType = matches[5],
         nodes = parseInt(matches[6]),
         elapsedMs: number = parseInt(matches[7]),
-        moves = matches[8].split(' ', 10);
+        moves = matches[8].split(' ');
+
+    // Sometimes we get #0. Let's just skip it.
+    if (isMate && !ev) return;
 
     // Track max pv index to determine when pv prints are done.
     if (this.expectedPvs < multiPv) this.expectedPvs = multiPv;
@@ -70,19 +82,19 @@ export default class Protocol {
     if (evalType && multiPv === 1) return;
 
     let pvData = {
-      moves: moves,
+      moves,
       cp: isMate ? undefined : ev,
       mate: isMate ? ev : undefined,
-      depth: depth,
+      depth,
     };
 
     if (multiPv === 1) {
       this.curEval = {
         fen: this.work.currentFen,
         maxDepth: this.work.maxDepth,
-        depth: depth,
+        depth,
         knps: nodes / elapsedMs,
-        nodes: nodes,
+        nodes,
         cp: isMate ? undefined : ev,
         mate: isMate ? ev : undefined,
         pvs: [pvData],
@@ -95,7 +107,6 @@ export default class Protocol {
 
     if (multiPv === this.expectedPvs && this.curEval) {
       this.work.emit(this.curEval);
-      this.curEval = null;
     }
   }
 
@@ -108,7 +119,8 @@ export default class Protocol {
     if (this.opts.hashSize) this.send('setoption name Hash value ' + this.opts.hashSize());
     this.send('setoption name MultiPV value ' + this.work.multiPv);
     this.send(['position', 'fen', this.work.initialFen, 'moves'].concat(this.work.moves).join(' '));
-    this.send('go depth ' + this.work.maxDepth);
+    if (this.work.maxDepth >= 99) this.send('go depth 99');
+    else this.send('go movetime 90000 depth ' + this.work.maxDepth);
   }
 
   stop(): Promise<void> {
@@ -118,5 +130,9 @@ export default class Protocol {
       this.send('stop');
     }
     return this.stopped.promise;
+  }
+
+  isComputing(): boolean {
+    return !this.stopped;
   }
 };

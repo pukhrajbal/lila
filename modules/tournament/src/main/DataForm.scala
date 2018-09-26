@@ -1,43 +1,72 @@
 package lila.tournament
 
+import org.joda.time.DateTime
 import play.api.data._
 import play.api.data.Forms._
+import play.api.data.validation.Constraints
 
 import chess.Mode
 import chess.StartingPosition
 import lila.common.Form._
+import lila.common.Form.ISODate._
+import lila.user.User
 
 final class DataForm {
 
   import DataForm._
 
-  lazy val create = Form(mapping(
-    "clockTime" -> numberInDouble(clockTimePrivateChoices),
-    "clockIncrement" -> numberIn(clockIncrementPrivateChoices),
-    "minutes" -> numberIn(minutePrivateChoices),
-    "waitMinutes" -> numberIn(waitMinuteChoices),
-    "variant" -> number.verifying(validVariantIds contains _),
-    "position" -> nonEmptyText.verifying(positions contains _),
-    "mode" -> optional(number.verifying(Mode.all map (_.id) contains _)),
-    "private" -> optional(text.verifying("on" == _)),
-    "password" -> optional(nonEmptyText)
-  )(TournamentSetup.apply)(TournamentSetup.unapply)
-    .verifying("Invalid clock", _.validClock)
-    .verifying("15s variant games cannot be rated", _.validRatedUltraBulletVariant)
-    .verifying("Increase tournament duration, or decrease game clock", _.validTiming)) fill TournamentSetup(
+  def apply(user: User) = create fill TournamentSetup(
+    name = canPickName(user) option user.titleUsername,
     clockTime = clockTimeDefault,
     clockIncrement = clockIncrementDefault,
     minutes = minuteDefault,
-    waitMinutes = waitMinuteDefault,
-    variant = chess.variant.Standard.id,
-    position = StartingPosition.initial.eco,
-    `private` = None,
+    waitMinutes = waitMinuteDefault.some,
+    startDate = none,
+    variant = chess.variant.Standard.key.some,
+    position = StartingPosition.initial.fen.some,
+    `private` = false,
     password = None,
-    mode = Mode.Rated.id.some
+    mode = Mode.Rated.id.some,
+    conditionsOption = Condition.DataForm.AllSetup.default.some,
+    berserkable = true.some
+  )
+
+  private val nameType = nonEmptyText.verifying(
+    Constraints minLength 2,
+    Constraints maxLength 30,
+    Constraints.pattern(
+      regex = """[\p{L}\p{N}-\s:,;]+""".r,
+      error = "error.unknown"
+    )
+  )
+
+  private lazy val create = Form(mapping(
+    "name" -> optional(nameType),
+    "clockTime" -> numberInDouble(clockTimePrivateChoices),
+    "clockIncrement" -> numberIn(clockIncrementPrivateChoices),
+    "minutes" -> numberIn(minutePrivateChoices),
+    "waitMinutes" -> optional(numberIn(waitMinuteChoices)),
+    "startDate" -> optional(isoDate),
+    "variant" -> optional(nonEmptyText.verifying(v => guessVariant(v).isDefined)),
+    "position" -> optional(nonEmptyText),
+    "mode" -> optional(number.verifying(Mode.all map (_.id) contains _)),
+    "private" -> tolerantBoolean,
+    "password" -> optional(nonEmptyText),
+    "conditions" -> optional(Condition.DataForm.all),
+    "berserkable" -> optional(boolean)
+  )(TournamentSetup.apply)(TournamentSetup.unapply)
+    .verifying("Invalid clock", _.validClock)
+    .verifying("15s variant games cannot be rated", _.validRatedUltraBulletVariant)
+    .verifying("Increase tournament duration, or decrease game clock", _.validTiming)
+    .verifying("These settings will only work for private tournaments", _.validPublic) // very rare, do not translate
   )
 }
 
 object DataForm {
+
+  def canPickName(u: User) = {
+    u.count.game >= 10 && u.createdSinceDays(3) && !u.troll
+  } || u.hasTitle
 
   import chess.variant._
 
@@ -67,44 +96,59 @@ object DataForm {
   val waitMinuteChoices = options(waitMinutes, "%d minute{s}")
   val waitMinuteDefault = 5
 
-  val positions = StartingPosition.allWithInitial.map(_.eco)
+  val positions = StartingPosition.allWithInitial.map(_.fen)
   val positionChoices = StartingPosition.allWithInitial.map { p =>
-    p.eco -> p.fullName
+    p.fen -> p.fullName
   }
-  val positionDefault = StartingPosition.initial.eco
+  val positionDefault = StartingPosition.initial.fen
 
   val validVariants = List(Standard, Chess960, KingOfTheHill, ThreeCheck, Antichess, Atomic, Horde, RacingKings, Crazyhouse)
 
-  val validVariantIds = validVariants.map(_.id).toSet
+  def guessVariant(from: String): Option[Variant] = validVariants.find { v =>
+    v.key == from || parseIntOption(from).exists(v.id ==)
+  }
+
+  def startingPosition(fen: String, variant: Variant): StartingPosition =
+    Thematic.byFen(fen).ifTrue(variant.standard) | StartingPosition.initial
 }
 
 private[tournament] case class TournamentSetup(
+    name: Option[String],
     clockTime: Double,
     clockIncrement: Int,
     minutes: Int,
-    waitMinutes: Int,
-    variant: Int,
-    position: String,
+    waitMinutes: Option[Int],
+    startDate: Option[DateTime],
+    variant: Option[String],
+    position: Option[String],
     mode: Option[Int],
-    `private`: Option[String],
-    password: Option[String]
+    `private`: Boolean,
+    password: Option[String],
+    conditionsOption: Option[Condition.DataForm.AllSetup],
+    berserkable: Option[Boolean]
 ) {
+
+  def conditions = conditionsOption | Condition.DataForm.AllSetup.default
 
   def validClock = (clockTime + clockIncrement) > 0
 
   def validTiming = (minutes * 60) >= (3 * estimatedGameDuration)
 
+  def validPublic = `private` || {
+    DataForm.clockTimes.contains(clockTime) &&
+      DataForm.clockIncrements.contains(clockIncrement) &&
+      DataForm.minutes.contains(minutes)
+  }
+
   def realMode = mode.fold(Mode.default)(Mode.orDefault)
 
-  def realVariant = chess.variant.Variant orDefault variant
+  def realVariant = variant.flatMap(DataForm.guessVariant) | chess.variant.Standard
 
   def clockConfig = chess.Clock.Config((clockTime * 60).toInt, clockIncrement)
 
   def validRatedUltraBulletVariant =
     realMode == Mode.Casual ||
-      lila.game.Game.allowRated(realVariant, clockConfig)
-
-  def isPrivate = `private`.isDefined
+      lila.game.Game.allowRated(realVariant, clockConfig.some)
 
   private def estimatedGameDuration = 60 * clockTime + 30 * clockIncrement
 }

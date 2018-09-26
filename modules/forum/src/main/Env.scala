@@ -3,9 +3,9 @@ package lila.forum
 import akka.actor._
 import com.typesafe.config.Config
 
-import lila.common.DetectLanguage
-import lila.common.PimpedConfig._
-import lila.hub.actorApi.forum._
+import lila.common.{ DetectLanguage, MaxPerPage }
+
+import lila.hub.actorApi.team.CreateTeam
 import lila.mod.ModlogApi
 import lila.notify.NotifyApi
 import lila.relation.RelationApi
@@ -31,7 +31,6 @@ final class Env(
     val CollectionCateg = config getString "collection.categ"
     val CollectionTopic = config getString "collection.topic"
     val CollectionPost = config getString "collection.post"
-    val ActorName = config getString "actor.name"
     import scala.collection.JavaConversions._
     val PublicCategIds = (config getStringList "public_categ_ids").toList
   }
@@ -44,33 +43,34 @@ final class Env(
   lazy val topicApi = new TopicApi(
     env = this,
     indexer = hub.actor.forumSearch,
-    maxPerPage = TopicMaxPerPage,
+    maxPerPage = MaxPerPage(TopicMaxPerPage),
     modLog = modLog,
     shutup = shutup,
     timeline = hub.actor.timeline,
     detectLanguage = detectLanguage,
-    mentionNotifier = mentionNotifier
+    mentionNotifier = mentionNotifier,
+    bus = system.lilaBus
   )
 
   lazy val postApi = new PostApi(
     env = this,
     indexer = hub.actor.forumSearch,
-    maxPerPage = PostMaxPerPage,
+    maxPerPage = MaxPerPage(PostMaxPerPage),
     modLog = modLog,
     shutup = shutup,
     timeline = hub.actor.timeline,
     detectLanguage = detectLanguage,
-    mentionNotifier = mentionNotifier
+    mentionNotifier = mentionNotifier,
+    bus = system.lilaBus
   )
 
   lazy val forms = new DataForm(hub.actor.captcher)
   lazy val recent = new Recent(postApi, RecentTtl, RecentNb, asyncCache, PublicCategIds)
 
-  system.actorOf(Props(new Actor {
-    def receive = {
-      case MakeTeam(id, name) => categApi.makeTeam(id, name)
-    }
-  }), name = ActorName)
+  system.lilaBus.subscribeFun('team, 'gdprErase) {
+    case CreateTeam(id, name, _) => categApi.makeTeam(id, name)
+    case lila.user.User.GDPRErase(user) => postApi erase user
+  }
 
   private[forum] lazy val categColl = db(CollectionCateg)
   private[forum] lazy val topicColl = db(CollectionTopic)

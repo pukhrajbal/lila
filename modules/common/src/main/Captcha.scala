@@ -1,6 +1,7 @@
 package lila.common
 
-import scalaz.NonEmptyList
+// import scalaz.NonEmptyList
+import scalaz._
 
 case class Captcha(
     gameId: String,
@@ -10,7 +11,7 @@ case class Captcha(
     moves: Map[String, String]
 ) {
 
-  def valid(solution: String) = solutions.list contains solution
+  def valid(solution: String) = solutions.toList contains solution
 }
 
 object Captcha {

@@ -23,13 +23,9 @@
     </div>
     }.getOrElse {
     <div class="anon">
-      <section class="login">
+      <section>
         <h2>@trans.signIn()</h2>
-        <form action="@routes.Auth.authenticate" method="POST">
-          <input placeholder="@trans.usernameOrEmail()" type="text" class="username" required="required" name="username" />
-          <input placeholder="@trans.password()" type="password" class="password" required="required" name="password" />
-          <input type="submit" class="submit" value="@trans.signIn()" />
-        </form>
+        <a class="login" href="@routes.Auth.login">@trans.signIn()</a>
         <div class="forgot">
           <a href="@routes.Auth.passwordReset">@trans.forgotPassword()</a>
         </div>
@@ -47,13 +43,13 @@
         <a href="@routes.Tournament.home()">@trans.tournament()</a>
         <a href="@routes.Simul.home">@trans.simultaneousExhibitions()</a>
         <a href="@routes.Tv.index">Lichess TV</a>
-        <a href="@routes.Tv.games">@trans.gamesBeingPlayedRightNow()</a>
+        <a href="@routes.Tv.games">@trans.currentGames()</a>
       </section>
       <section>
-        <h2>@trans.learn()</h2>
+        <h2>@trans.learnMenu()</h2>
         <a href="@routes.Puzzle.home">@trans.training()</a>
         <a href="@routes.Practice.index">Practice</a>
-        <a href="@routes.Coordinate.home">@trans.coordinates()</a>
+        <a href="@routes.Coordinate.home">@trans.coordinates.coordinates()</a>
         <a href="@routes.Study.allDefault(1)">Study</a>
         <a href="@routes.Video.index">@trans.videoLibrary()</a>
       </section>
@@ -82,6 +78,7 @@
     <a href="/blog">@trans.blog()</a> ı
     @NotForKids {
     <a href="/developers">@trans.webmasters()</a> ı
+    <a href="/about">@trans.about()</a> ı
     <a href="/help/contribute">@trans.contribute()</a> ı
     }
     <a href="/thanks">@trans.thankYou()</a><br />
@@ -89,9 +86,10 @@
     <a href="/patron">@trans.donate()</a> ı
     }
     <a href="/contact">@trans.contact()</a> ı
-    <a href="@routes.Page.tos">@trans.termsOfService()</a> ı
-    <a href="@routes.Page.privacy">@trans.privacy()</a>
+    <a href="@routes.Page.bookmark("tos")">@trans.termsOfService()</a> ı
+    <a href="@routes.Page.bookmark("privacy")">@trans.privacy()</a>
     @NotForKids {
+    ı <a href="https://database.lichess.org/" target="_blank">@trans.database()</a>
     ı <a href="https://github.com/ornicar/lila" target="_blank">@trans.sourceCode()</a>
     }
   </div>

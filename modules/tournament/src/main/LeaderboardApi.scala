@@ -13,25 +13,32 @@ import lila.user.User
 
 final class LeaderboardApi(
     coll: Coll,
-    maxPerPage: Int
+    maxPerPage: lila.common.MaxPerPage
 ) {
 
   import LeaderboardApi._
   import BSONHandlers._
 
-  def recentByUser(user: User, page: Int) = paginator(user, page, $doc("d" -> -1))
+  def recentByUser(user: User, page: Int) = paginator(user, page, $sort desc "d")
 
-  def bestByUser(user: User, page: Int) = paginator(user, page, $doc("w" -> 1))
+  def bestByUser(user: User, page: Int) = paginator(user, page, $sort asc "w")
+
+  def timeRange(userId: User.ID, range: (DateTime, DateTime)): Fu[List[Entry]] =
+    coll.find($doc(
+      "u" -> userId,
+      "d" $gt range._1 $lt range._2
+    )).sort($sort desc "d").list[Entry]()
 
   def chart(user: User): Fu[ChartData] = {
     import reactivemongo.bson._
     import reactivemongo.api.collections.bson.BSONBatchCommands.AggregationFramework._
-    coll.aggregateWithReadPreference(
+    coll.aggregateList(
       Match($doc("u" -> user.id)),
       List(GroupField("v")("nb" -> SumValue(1), "points" -> PushField("s"), "ratios" -> PushField("w"))),
+      maxDocs = Int.MaxValue,
       ReadPreference.secondaryPreferred
     ).map {
-        _.firstBatch map leaderboardAggregationResultBSONHandler.read
+        _ map leaderboardAggregationResultBSONHandler.read
       }.map { aggs =>
         ChartData {
           aggs.flatMap { agg =>
@@ -47,14 +54,22 @@ final class LeaderboardApi(
       }
   }
 
+  def getAndDeleteRecent(userId: User.ID, since: DateTime): Fu[List[Tournament.ID]] =
+    coll.find($doc(
+      "u" -> userId,
+      "d" $gt since
+    )).list[Entry]() flatMap { entries =>
+      (entries.nonEmpty ?? coll.remove($inIds(entries.map(_.id))).void) inject entries.map(_.tourId)
+    }
+
   private def paginator(user: User, page: Int, sort: Bdoc): Fu[Paginator[TourEntry]] = Paginator(
     adapter = new Adapter[Entry](
-    collection = coll,
-    selector = $doc("u" -> user.id),
-    projection = $empty,
-    sort = sort,
-    readPreference = ReadPreference.secondaryPreferred
-  ) mapFutureList withTournaments,
+      collection = coll,
+      selector = $doc("u" -> user.id),
+      projection = $empty,
+      sort = sort,
+      readPreference = ReadPreference.secondaryPreferred
+    ) mapFutureList withTournaments,
     currentPage = page,
     maxPerPage = maxPerPage
   )
@@ -73,20 +88,20 @@ object LeaderboardApi {
 
   case class TourEntry(tour: Tournament, entry: Entry)
 
-  case class Ratio(value: Double)
+  case class Ratio(value: Double) extends AnyVal
 
   case class Entry(
-    id: String, // same as tournament player id
-    userId: String,
-    tourId: String,
-    nbGames: Int,
-    score: Int,
-    rank: Int,
-    rankRatio: Ratio, // ratio * rankRatioMultiplier. function of rank and tour.nbPlayers. less is better.
-    freq: Option[Schedule.Freq],
-    speed: Option[Schedule.Speed],
-    perf: PerfType,
-    date: DateTime
+      id: String, // same as tournament player id
+      userId: String,
+      tourId: Tournament.ID,
+      nbGames: Int,
+      score: Int,
+      rank: Int,
+      rankRatio: Ratio, // ratio * rankRatioMultiplier. function of rank and tour.nbPlayers. less is better.
+      freq: Option[Schedule.Freq],
+      speed: Option[Schedule.Speed],
+      perf: PerfType,
+      date: DateTime
   )
 
   case class ChartData(perfResults: List[(PerfType, ChartData.PerfResult)]) {
@@ -106,8 +121,8 @@ object LeaderboardApi {
   object ChartData {
 
     case class Ints(v: List[Int]) {
-      def mean = v.toNel map Maths.mean[Int]
-      def median = v.toNel map Maths.median[Int]
+      def mean = Maths.mean(v)
+      def median = Maths.median(v)
       def sum = v.sum
       def :::(i: Ints) = Ints(v ::: i.v)
     }

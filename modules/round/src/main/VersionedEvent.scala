@@ -4,12 +4,11 @@ import play.api.libs.json._
 
 import actorApi.Member
 import chess.Color
-import lila.common.ApiVersion
 import lila.game.Event
-import org.apache.commons.lang3.StringEscapeUtils.escapeHtml4
+import lila.socket.Socket.{ SocketVersion, socketVersionFormat }
 
 case class VersionedEvent(
-    version: Int,
+    version: SocketVersion,
     typ: String,
     encoded: Either[String, JsValue],
     only: Option[Color],
@@ -28,21 +27,9 @@ case class VersionedEvent(
     else Json.obj(
       "v" -> version,
       "t" -> typ,
-      "d" -> dataForApiVersion(typ, decoded, m.apiVersion)
+      "d" -> decoded
     )
-  }
-  else Json.obj("v" -> version)
-
-  private val mobileV1Escaper: Reads[JsObject] = (__ \ 't).json.update(
-    __.read[JsString].map { s => JsString(escapeHtml4(s.value)) }
-  )
-
-  private def dataForApiVersion(typ: String, data: JsValue, apiVersion: ApiVersion): JsValue =
-    if (typ == "message" && apiVersion.v1) data match {
-      case o: JsObject => o transform mobileV1Escaper getOrElse o
-      case v => v
-    }
-    else data
+  } else Json.obj("v" -> version)
 
   private def visibleBy(m: Member): Boolean =
     if (watcher && m.owner) false
@@ -55,7 +42,7 @@ case class VersionedEvent(
 
 private[round] object VersionedEvent {
 
-  def apply(e: Event, v: Int): VersionedEvent = VersionedEvent(
+  def apply(e: Event, v: SocketVersion): VersionedEvent = VersionedEvent(
     version = v,
     typ = e.typ,
     encoded = Right(e.data),
@@ -68,9 +55,11 @@ private[round] object VersionedEvent {
   import lila.db.BSON
   import reactivemongo.bson._
 
+  private implicit val SocketVersionHandler = lila.db.dsl.intAnyValHandler[SocketVersion](_.value, SocketVersion.apply)
+
   implicit val versionedEventHandler = new BSON[VersionedEvent] {
     def reads(r: BSON.Reader) = VersionedEvent(
-      version = r int "v",
+      version = r.get[SocketVersion]("v"),
       typ = r str "t",
       encoded = r.strO("d").map(Left.apply).getOrElse(Right(JsNull)),
       only = r boolO "o" map Color.apply,

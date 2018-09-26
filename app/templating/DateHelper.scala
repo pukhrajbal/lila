@@ -44,13 +44,10 @@ trait DateHelper { self: I18nHelper =>
   private def periodFormatter(ctx: Context): PeriodFormatter =
     periodFormatters.getOrElseUpdate(
       lang(ctx).code, {
-      Locale setDefault Locale.ENGLISH
-      PeriodFormat wordBased lang(ctx).toLocale
-    }
+        Locale setDefault Locale.ENGLISH
+        PeriodFormat wordBased lang(ctx).toLocale
+      }
     )
-
-  def showDateTime(date: DateTime)(implicit ctx: Context): String =
-    dateTimeFormatter(ctx) print date
 
   def showDateTimeZone(date: DateTime, zone: DateTimeZone)(implicit ctx: Context): String =
     dateTimeFormatter(ctx) print date.toDateTime(zone)
@@ -76,20 +73,18 @@ trait DateHelper { self: I18nHelper =>
 
   def isoDate(date: DateTime): String = isoFormatter print date
 
-  def momentFormat(date: DateTime, format: String): Html = Html {
-    s"""<time class="moment" datetime="${isoDate(date)}" data-format="$format"></time>"""
+  private val oneDayMillis = 1000 * 60 * 60 * 24
+  def momentFromNow(date: DateTime, alwaysRelative: Boolean = false, once: Boolean = false) = Html {
+    if (!alwaysRelative && (date.getMillis - nowMillis) > oneDayMillis) absClientDateTime(date)
+    s"""<time class="timeago${if (once) " once" else ""}" datetime="${isoDate(date)}"></time>"""
   }
-  def momentFormat(date: DateTime): Html = momentFormat(date, "calendar")
+  def absClientDateTime(date: DateTime) = Html {
+    s"""<time class="timeago abs" datetime="${isoDate(date)}"></time>"""
+  }
+  def momentFromNowOnce(date: DateTime) = momentFromNow(date, once = true)
 
-  def momentFromNow(date: DateTime)(implicit ctx: Context) = Html {
-    s"""<time class="moment-from-now" title="${showDate(date)}" datetime="${isoDate(date)}"></time>"""
-  }
-  def momentFromNowNoCtx(date: DateTime) = Html {
-    s"""<time class="moment-from-now" datetime="${isoDate(date)}"></time>"""
-  }
-
-  def secondsFromNow(seconds: Int)(implicit ctx: Context) =
-    momentFromNow(DateTime.now plusSeconds seconds)
+  def secondsFromNow(seconds: Int, alwaysRelative: Boolean = false)(implicit ctx: Context) =
+    momentFromNow(DateTime.now plusSeconds seconds, alwaysRelative)
 
   private val atomDateFormatter = ISODateTimeFormat.dateTime
   def atomDate(date: DateTime): String = atomDateFormatter print date

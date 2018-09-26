@@ -2,7 +2,7 @@ import { h } from 'snabbdom'
 import { VNode } from 'snabbdom/vnode'
 
 const scale = 8;
-let now, startTime, stopTime;
+let now: number, startTime: number, stopTime: number;
 
 function displayClockLimit(limit) {
   switch (limit) {
@@ -34,7 +34,7 @@ function laneGrouper(t) {
     return 99;
   } else if (t.perf.key === 'ultraBullet') {
     return 70;
-  } else if (t.schedule && t.conditions && t.conditions.maxRating) {
+  } else if (t.schedule && t.hasMaxRating) {
     return 50 + parseInt(t.fullName.slice(1,5)) / 10000;
   } else if (t.schedule && t.schedule.speed === 'superblitz') {
     return t.perf.position - 0.5;
@@ -44,9 +44,10 @@ function laneGrouper(t) {
 }
 
 function group(arr, grouper) {
-  var groups = {};
-  arr.forEach(function(e) {
-    var g = grouper(e);
+  const groups = {};
+  let g;
+  arr.forEach(e => {
+    g = grouper(e);
     if (!groups[g]) groups[g] = [];
     groups[g].push(e);
   });
@@ -86,19 +87,25 @@ function splitOverlaping(lanes) {
 }
 
 function tournamentClass(tour) {
-  const finished = tour.status === 30;
-  const classes = {
+  const finished = tour.status === 30,
+  userCreated = tour.createdBy !== 'lichess',
+  classes = {
     rated: tour.rated,
     casual: !tour.rated,
-    finished: finished,
+    finished,
     joinable: !finished,
-    'user-created': tour.createdBy !== 'lichess',
+    'user-created': userCreated,
+    'major': tour.major,
     thematic: !!tour.position,
     short: tour.minutes <= 30,
-    'max-rating': tour.conditions && tour.conditions.maxRating
+    'max-rating': !userCreated && tour.hasMaxRating
   };
   if (tour.schedule) classes[tour.schedule.freq] = true;
   return classes;
+}
+
+function iconOf(tour, perfIcon) {
+  return (tour.schedule && tour.schedule.freq === 'shield') ? '5' : perfIcon;
 }
 
 function renderTournament(ctrl, tour) {
@@ -120,7 +127,7 @@ function renderTournament(ctrl, tour) {
       }, [
         h('span.icon', tour.perf ? {
           attrs: {
-            'data-icon': tour.perf.icon,
+            'data-icon': iconOf(tour, tour.perf.icon),
             title: tour.perf.name
           }
         } : {}),
@@ -131,7 +138,7 @@ function renderTournament(ctrl, tour) {
               displayClock(tour.clock) + ' ',
               tour.variant.key === 'standard' ? null : tour.variant.name + ' ',
               tour.position ? 'Thematic ' : null,
-              tour.rated ? ctrl.trans('rated') : ctrl.trans('casual')
+              tour.rated ? ctrl.trans('ratedTournament') : ctrl.trans('casualTournament')
             ]),
             tour.nbPlayers ? h('span.nb-players', {
               attrs: { 'data-icon': 'r' }
@@ -180,32 +187,43 @@ export default function(ctrl) {
 
   const data = ctrl.data();
 
-  if (!data.systemTours) {
-    const tours = data.finished
-      .concat(data.started)
-      .concat(data.created)
-      .filter(t => t.finishesAt > startTime);
-    data.systemTours = tours.filter(isSystemTournament);
-    data.userTours = tours.filter(t => !isSystemTournament(t));
-  }
+  const systemTours: any[] = [],
+  majorTours: any[] = [],
+  userTours: any[] = [];
 
-  // group system tournaments into dedicated lanes for PerfType
-  const tourLanes = splitOverlaping(
-    group(data.systemTours, laneGrouper).concat([data.userTours])
-  ).filter(lane => lane.length > 0);
+  data.finished
+    .concat(data.started)
+    .concat(data.created)
+    .filter(t => t.finishesAt > startTime)
+    .forEach(t => {
+      if (isSystemTournament(t)) systemTours.push(t);
+      else if (t.major) majorTours.push(t);
+      else userTours.push(t);
+    });
 
-  return h('div#tournament_schedule', [
-    h('div.schedule.dragscroll', {
-      hook: {
-        insert: vnode => {
-          const el = vnode.elm as HTMLElement;
-          const bitLater = now + 15 * 60 * 1000;
-          el.scrollLeft = leftPos(bitLater - el.clientWidth / 2 / scale * 60 * 1000);
+    // group system tournaments into dedicated lanes for PerfType
+    const tourLanes = splitOverlaping(
+      group(systemTours, laneGrouper)
+        .concat([majorTours])
+        .concat([userTours])
+    ).filter(lane => lane.length > 0);
+
+    return h('div#tournament_schedule', [
+      h('div.schedule.dragscroll', {
+        hook: {
+          insert: vnode => {
+            const el = vnode.elm as HTMLElement;
+            const bitLater = now + 15 * 60 * 1000;
+            el.scrollLeft = leftPos(bitLater - el.clientWidth / 2 / scale * 60 * 1000);
+          }
         }
-      }
-    }, [
-      renderTimeline(),
-      ...tourLanes.map(lane => h('div.tournamentline', lane.map(tour => renderTournament(ctrl, tour))))
-    ])
-  ]);
-};
+      }, [
+        renderTimeline(),
+        ...tourLanes.map(lane => {
+          const large = lane.find(t => isSystemTournament(t) || t.major);
+          return h('div.tournamentline' + (large ? '.large' : ''), lane.map(tour =>
+            renderTournament(ctrl, tour)))
+        })
+      ])
+    ]);
+}

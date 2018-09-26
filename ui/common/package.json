@@ -22,9 +22,8 @@
     "compile": "tsc"
   },
   "devDependencies": {
-    "typescript": "^2",
-    "types": "file:../types"
+    "@types/lichess": "1.0.0",
+    "typescript": "^2"
   },
-  "dependencies": {
-  }
+  "dependencies": {}
 }

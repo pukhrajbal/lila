@@ -1,15 +1,24 @@
 package lila.common
 
 import java.text.Normalizer
-import java.util.regex.Matcher.quoteReplacement
+import play.api.libs.json._
+import play.twirl.api.Html
 
-object String {
+import lila.base.RawHtml
+import lila.common.base.StringUtils.{ safeJsonString, escapeHtml => escapeHtmlRaw }
 
-  private val slugR = """[^\w-]""".r
+final object String {
+
+  val erased = "<deleted>"
+  val erasedHtml = Html("&lt;deleted&gt;")
+
+  private[this] val slugR = """[^\w-]""".r
+  private[this] val slugMultiDashRegex = """-{2,}""".r
 
   def slugify(input: String) = {
-    val nowhitespace = input.trim.replace(" ", "-")
-    val normalized = Normalizer.normalize(nowhitespace, Normalizer.Form.NFD)
+    val nowhitespace = input.trim.replace(' ', '-')
+    val singleDashes = slugMultiDashRegex.replaceAllIn(nowhitespace, "-")
+    val normalized = Normalizer.normalize(singleDashes, Normalizer.Form.NFD)
     val slug = slugR.replaceAllIn(normalized, "")
     slug.toLowerCase
   }
@@ -17,21 +26,13 @@ object String {
   def decodeUriPath(input: String): Option[String] = {
     try {
       play.utils.UriEncoding.decodePath(input, "UTF-8").some
-    }
-    catch {
+    } catch {
       case e: play.utils.InvalidUriEncodingException => None
     }
   }
 
-  final class Delocalizer(netDomain: String) {
-
-    private val regex = ("""\w{2}\.""" + quoteReplacement(netDomain)).r
-
-    def apply(url: String) = regex.replaceAllIn(url, netDomain)
-  }
-
   def shorten(text: String, length: Int, sep: String = "…") = {
-    val t = text.replace("\n", " ")
+    val t = text.replace('\n', ' ')
     if (t.size > (length + sep.size)) (t take length) ++ sep
     else t
   }
@@ -42,10 +43,54 @@ object String {
     def encode(txt: String) =
       Base64.getEncoder.encodeToString(txt getBytes StandardCharsets.UTF_8)
     def decode(txt: String): Option[String] = try {
-      Some(new String(Base64.getDecoder decode txt))
-    }
-    catch {
+      Some(new String(Base64.getDecoder decode txt, StandardCharsets.UTF_8))
+    } catch {
       case _: java.lang.IllegalArgumentException => none
     }
   }
+
+  val atUsernameRegex = RawHtml.atUsernameRegex
+
+  object html {
+    def richText(rawText: String, nl2br: Boolean = true) = Html {
+      val withLinks = RawHtml.addLinks(rawText)
+      if (nl2br) RawHtml.nl2br(withLinks) else withLinks
+    }
+
+    def nl2brUnsafe(text: String) = Html {
+      RawHtml.nl2br(text)
+    }
+
+    def nl2br(text: String): Html = nl2brUnsafe(escapeHtmlRaw(text))
+
+    def escapeHtml(s: String) = Html {
+      escapeHtmlRaw(s)
+    }
+
+    def markdownLinks(text: String) = Html {
+      RawHtml.markdownLinks(text)
+    }
+
+    def safeJsonValue(jsValue: JsValue): String = {
+      // Borrowed from:
+      // https://github.com/playframework/play-json/blob/160f66a84a9c5461c52b50ac5e222534f9e05442/play-json/js/src/main/scala/StaticBinding.scala#L65
+      jsValue match {
+        case JsNull => "null"
+        case JsString(s) => safeJsonString(s)
+        case JsNumber(n) => n.toString
+        case JsBoolean(b) => if (b) "true" else "false"
+        case JsArray(items) => items.map(safeJsonValue).mkString("[", ",", "]")
+        case JsObject(fields) => {
+          fields.map {
+            case (k, v) => s"${safeJsonString(k)}:${safeJsonValue(v)}"
+          }.mkString("{", ",", "}")
+        }
+      }
+    }
+
+    def safeJson(jsValue: JsValue) = Html {
+      safeJsonValue(jsValue)
+    }
+  }
+
 }

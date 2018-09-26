@@ -20,7 +20,7 @@ function bindEvents(el, ctrl) {
 }
 
 function isLeftButton(e) {
-  return e.buttons === 1 || e.button === 1 || e.which === 1;
+  return e.buttons === 1 || e.button === 1;
 }
 
 function isLeftClick(e) {
@@ -109,8 +109,8 @@ function onMouseEvent(ctrl) {
 function deleteOrHidePiece(ctrl, key, e) {
   if (e.type === 'touchstart') {
     if (ctrl.chessground.state.pieces[key]) {
+      ctrl.chessground.state.draggable.current.element.style.display = 'none';
       ctrl.chessground.cancelMove();
-      e.srcElement.style.display = 'none';
     }
 
     document.addEventListener('touchend', function() {

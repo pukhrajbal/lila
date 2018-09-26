@@ -18,18 +18,17 @@ private final class CorresAlarm(
     roundSocketHub: ActorSelection
 ) extends Actor {
 
-  object Schedule
   object Run
 
   case class Alarm(
-    _id: String, // game id
-    ringsAt: DateTime, // when to notify the player
-    expiresAt: DateTime
+      _id: String, // game id
+      ringsAt: DateTime, // when to notify the player
+      expiresAt: DateTime
   )
 
   private implicit val AlarmHandler = reactivemongo.bson.Macros.handler[Alarm]
 
-  override def preStart() {
+  override def preStart(): Unit = {
     scheduleNext
     context setReceiveTimeout 1.minute
   }
@@ -66,14 +65,14 @@ private final class CorresAlarm(
             }
           } >> coll.remove($id(alarm._id)) inject (count + 1)
         })
-        .chronometer.mon(_.round.alarm.time).result
+        .mon(_.round.alarm.time)
         .addEffect(c => lila.mon.round.alarm.count(c))
         .addEffectAnyway(scheduleNext)
 
     case lila.game.actorApi.FinishGame(game, _, _) =>
       if (game.hasCorrespondenceClock && !game.hasAi) coll.remove($id(game.id))
 
-    case move: lila.hub.actorApi.round.MoveEvent if move.alarmable =>
+    case lila.hub.actorApi.round.CorresMoveEvent(move, _, _, alarmable, _) if alarmable =>
       GameRepo game move.gameId flatMap {
         _ ?? { game =>
           game.bothPlayersHaveMoved ?? {

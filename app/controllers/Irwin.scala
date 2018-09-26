@@ -17,59 +17,18 @@ object Irwin extends LilaController {
     }
   }
 
-  def saveReport = OpenBody(parse.json) { implicit ctx =>
-    ModExternalBot {
-      UserRepo.irwin.flatten("Missing irwin user") flatMap { irwin =>
-        ctx.body.body.validate[lila.irwin.IrwinReport].fold(
-          err => fuccess(BadRequest(err.toString)),
-          report => Env.irwin.api.reports.insert(report) inject Ok
-        )
-      }
+  def saveReport = ScopedBody(parse.json)(Nil) { req => me =>
+    isGranted(_.Admin, me) ?? {
+      req.body.validate[lila.irwin.IrwinReport].fold(
+        err => fuccess(BadRequest(err.toString)),
+        report => Env.irwin.api.reports.insert(report) inject Ok
+      )
     }
   }
 
-  def getRequest = Open { implicit ctx =>
-    ModExternalBot {
-      Env.irwin.api.requests.getAndStart map {
-        case None => NotFound
-        case Some(req) => Ok(req.id)
-      }
-    }
-  }
-
-  def assessment(username: String) = Open { implicit ctx =>
-    ModExternalBot {
-      OptionFuResult(UserRepo named username) { user =>
-        Env.mod.assessApi.refreshAssessByUsername(user.id) >>
-          Env.mod.jsonView(user).flatMap {
-            case None => NotFound.fuccess
-            case Some(data) => Env.mod.userHistory(user) map { history =>
-              Ok(data + ("history" -> history))
-            }
-          }.map(_ as JSON)
-      }
-    }
-  }
-
-  def usersMarkAndCurrentReport(idsStr: String) = Open { implicit ctx =>
-    ModExternalBot {
-      val ids = idsStr.split(',').toList map lila.user.User.normalize
-      for {
-        engineIds <- UserRepo filterByEngine ids
-        reportedIds <- Env.report.api.currentlyReportedForCheat
-      } yield Ok(Json.toJson(ids.map { id =>
-        id -> Json.obj("engine" -> engineIds(id), "report" -> reportedIds(id))
-      }.toMap)) as JSON
-    }
-  }
-
-  def eventStream = Open { implicit ctx =>
-    ModExternalBot {
+  def eventStream = Scoped() { _ => me =>
+    isGranted(_.Admin, me) ?? {
       Ok.chunked(Env.irwin.stream.enumerator).fuccess
     }
   }
-
-  private def ModExternalBot(f: => Fu[Result])(implicit ctx: Context) =
-    if (get("api_key") contains Env.mod.ApiKey) f
-    else fuccess(NotFound)
 }

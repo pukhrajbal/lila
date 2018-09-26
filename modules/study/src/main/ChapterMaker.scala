@@ -1,16 +1,16 @@
 package lila.study
 
-import chess.format.pgn.Tag
+import chess.format.pgn.Tags
 import chess.format.{ Forsyth, FEN }
 import chess.variant.{ Variant, Crazyhouse }
+import lila.chat.Chat
 import lila.game.{ Game, Pov, GameRepo, Namer }
 import lila.importer.Importer
-import lila.round.JsonView.WithFlags
 import lila.user.User
 
 private final class ChapterMaker(
     domain: String,
-    lightUser: lila.common.LightUser.GetterSync,
+    lightUser: lila.user.LightUserApi,
     chat: akka.actor.ActorSelection,
     importer: Importer,
     pgnFetch: PgnFetch
@@ -21,42 +21,45 @@ private final class ChapterMaker(
   def apply(study: Study, data: Data, order: Int, userId: User.ID): Fu[Option[Chapter]] =
     data.game.??(parsePov) flatMap {
       case None =>
-        data.game.??(pgnFetch.fromUrl) map {
-          case Some(pgn) => fromFenOrPgnOrBlank(study, data.copy(pgn = pgn.some), order, userId).some
-          case None => fromFenOrPgnOrBlank(study, data, order, userId).some
+        data.game.??(pgnFetch.fromUrl) flatMap {
+          case Some(pgn) => fromFenOrPgnOrBlank(study, data.copy(pgn = pgn.some), order, userId) map some
+          case _ => fromFenOrPgnOrBlank(study, data, order, userId) map some
         }
       case Some(pov) => fromPov(study, pov, data, order, userId)
     } map2 { (c: Chapter) =>
       if (c.name.value.isEmpty) c.copy(name = Chapter defaultName order) else c
     }
 
-  def fromFenOrPgnOrBlank(study: Study, data: Data, order: Int, userId: User.ID): Chapter =
+  def fromFenOrPgnOrBlank(study: Study, data: Data, order: Int, userId: User.ID): Fu[Chapter] =
     data.pgn.filter(_.trim.nonEmpty) match {
       case Some(pgn) => fromPgn(study, pgn, data, order, userId)
-      case None => fromFenOrBlank(study, data, order, userId)
+      case None => fuccess(fromFenOrBlank(study, data, order, userId))
     }
 
-  private def fromPgn(study: Study, pgn: String, data: Data, order: Int, userId: User.ID): Chapter =
-    PgnImport(pgn).toOption.fold(fromFenOrBlank(study, data, order, userId)) { res =>
-      Chapter.make(
-        studyId = study.id,
-        name = (for {
-        white <- Tag.find(res.tags, "White")
-        black <- Tag.find(res.tags, "Black")
-        if data.name.value.isEmpty || Chapter.isDefaultName(data.name)
-      } yield Chapter.Name(s"$white - $black")) | data.name,
-        setup = Chapter.Setup(
-          none,
-          res.variant,
-          data.realOrientation
-        ),
-        root = res.root,
-        tags = res.tags,
-        order = order,
-        ownerId = userId,
-        practice = data.isPractice,
-        conceal = data.isConceal option Chapter.Ply(res.root.ply)
-      )
+  private def fromPgn(study: Study, pgn: String, data: Data, order: Int, userId: User.ID): Fu[Chapter] =
+    lightUser.asyncMany(study.members.contributorIds.toList) map { contributors =>
+      PgnImport(pgn, contributors.flatten).toOption.fold(fromFenOrBlank(study, data, order, userId)) { res =>
+        Chapter.make(
+          studyId = study.id,
+          name = (for {
+            white <- res.tags(_.White)
+            black <- res.tags(_.Black)
+            if data.name.value.isEmpty || Chapter.isDefaultName(data.name)
+          } yield Chapter.Name(s"$white - $black")) | data.name,
+          setup = Chapter.Setup(
+            none,
+            res.variant,
+            data.realOrientation
+          ),
+          root = res.root,
+          tags = res.tags,
+          order = order,
+          ownerId = userId,
+          practice = data.isPractice,
+          gamebook = data.isGamebook,
+          conceal = data.isConceal option Chapter.Ply(res.root.ply)
+        )
+      }
     }
 
   private def fromFenOrBlank(study: Study, data: Data, order: Int, userId: User.ID): Chapter = {
@@ -91,10 +94,11 @@ private final class ChapterMaker(
           fromFen = isFromFen option true
         ),
         root = root,
-        tags = Nil,
+        tags = Tags.empty,
         order = order,
         ownerId = userId,
         practice = data.isPractice,
+        gamebook = data.isGamebook,
         conceal = None
       )
     }
@@ -105,19 +109,20 @@ private final class ChapterMaker(
       Chapter.make(
         studyId = study.id,
         name =
-        if (Chapter isDefaultName data.name)
-          Chapter.Name(Namer.gameVsText(pov.game, withRatings = false)(lightUser))
-        else data.name,
+          if (Chapter isDefaultName data.name)
+            Chapter.Name(Namer.gameVsText(pov.game, withRatings = false)(lightUser.sync))
+          else data.name,
         setup = Chapter.Setup(
-          !pov.game.synthetic option pov.game.id,
+          !pov.game.synthetic option pov.gameId,
           pov.game.variant,
           data.realOrientation
         ),
         root = root,
-        tags = Nil,
+        tags = Tags.empty,
         order = order,
         ownerId = userId,
         practice = data.isPractice,
+        gamebook = data.isGamebook,
         conceal = data.isConceal option Chapter.Ply(root.ply)
       ).some
     } addEffect { _ =>
@@ -127,41 +132,22 @@ private final class ChapterMaker(
   def notifyChat(study: Study, game: Game, userId: User.ID) =
     if (study.isPublic) List(game.id, s"${game.id}/w") foreach { chatId =>
       chat ! lila.chat.actorApi.UserTalk(
-        chatId = chatId,
+        chatId = Chat.Id(chatId),
         userId = userId,
-        text = s"I'm studying this game on lichess.org/study/${study.id}"
+        text = s"I'm studying this game on lichess.org/study/${study.id}",
+        publicSource = none
       )
     }
 
   def game2root(game: Game, initialFen: Option[FEN] = None): Fu[Node.Root] =
     initialFen.fold(GameRepo initialFen game) { fen =>
-      fuccess(fen.value.some)
-    } map { initialFen =>
-      val root = Node.Root.fromRoot {
-        lila.round.TreeBuilder(
-          game = game,
-          analysis = none,
-          initialFen = initialFen | game.variant.initialFen,
-          withFlags = WithFlags(clocks = true)
-        )
-      }
-      endComment(game).fold(root) { comment =>
-        root updateMainlineLast { _.setComment(comment) }
-      }
-    }
-
-  private def endComment(game: Game) = game.finished option {
-    import lila.tree.Node.Comment
-    val result = chess.Color.showResult(game.winnerColor)
-    val status = lila.game.StatusText(game)
-    val text = s"$result $status"
-    Comment(Comment.Id.make, Comment.Text(text), Comment.Author.Lichess)
-  }
+      fuccess(fen.some)
+    } map { GameToRoot(game, _, withClocks = true) }
 
   private val UrlRegex = {
     val escapedDomain = domain.replace(".", "\\.")
-    s""".*$escapedDomain/(\\w{8,12}).*"""
-  }.r
+    s"""$escapedDomain/(\\w{8,12})"""
+  }.r.unanchored
 
   private def parsePov(str: String): Fu[Option[Pov]] = str match {
     case s if s.size == Game.gameIdSize => GameRepo.pov(s, chess.White)
@@ -179,8 +165,9 @@ private[study] object ChapterMaker {
   object Mode {
     case object Normal extends Mode
     case object Practice extends Mode
+    case object Gamebook extends Mode
     case object Conceal extends Mode
-    val all = List(Normal, Practice, Conceal)
+    val all = List(Normal, Practice, Gamebook, Conceal)
     def apply(key: String) = all.find(_.key == key)
   }
 
@@ -189,24 +176,30 @@ private[study] object ChapterMaker {
     def mode: String
     def realOrientation = chess.Color(orientation) | chess.White
     def isPractice = mode == Mode.Practice.key
+    def isGamebook = mode == Mode.Gamebook.key
     def isConceal = mode == Mode.Conceal.key
   }
 
   case class Data(
-    name: Chapter.Name,
-    game: Option[String],
-    variant: Option[String],
-    fen: Option[String],
-    pgn: Option[String],
-    orientation: String,
-    mode: String,
-    initial: Boolean
+      name: Chapter.Name,
+      game: Option[String] = None,
+      variant: Option[String] = None,
+      fen: Option[String] = None,
+      pgn: Option[String] = None,
+      orientation: String = "white",
+      mode: String = ChapterMaker.Mode.Normal.key,
+      initial: Boolean = false
   ) extends ChapterData
 
   case class EditData(
-    id: Chapter.Id,
-    name: Chapter.Name,
-    orientation: String,
-    mode: String
-  ) extends ChapterData
+      id: Chapter.Id,
+      name: Chapter.Name,
+      orientation: String,
+      mode: String,
+      description: String // boolean
+  ) extends ChapterData {
+    def hasDescription = description.nonEmpty
+  }
+
+  case class DescData(id: Chapter.Id, description: String)
 }

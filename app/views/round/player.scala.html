@@ -1,19 +1,28 @@
-@(pov: Pov, data: play.api.libs.json.JsObject, tour: Option[lila.tournament.MiniStanding], simul: Option[lila.simul.Simul], cross: Option[lila.game.Crosstable], playing: List[Pov], chatOption: Option[lila.chat.Chat.Restricted], bookmarked: Boolean)(implicit ctx: Context)
+@(pov: Pov, data: play.api.libs.json.JsObject, tour: Option[lila.tournament.TourMiniView], simul: Option[lila.simul.Simul], cross: Option[lila.game.Crosstable.WithMatchup], playing: List[Pov], chatOption: Option[lila.chat.Chat.GameOrEvent], bookmarked: Boolean)(implicit ctx: Context)
 
 @import pov._
 
-@title = @{ s"${trans.play.str()} ${playerText(pov.opponent)} in $gameId" }
+@title = @{ s"${trans.play.txt()} ${playerText(pov.opponent)} in $gameId" }
 
 @moreJs = {
-@jsAt(s"compiled/lichess.round${isProd??(".min")}.js", async = true)
+@roundTag
 @embedJs {
+window.customWS = true;
 window.onload = function() {
 LichessRound.boot({
-data: @Html(J.stringify(data)),
-i18n: @jsI18n(),
+data: @safeJson(data),
+i18n: @jsI18n(pov.game),
 userId: @jsUserId,
-chat: @jsOrNull(chatOption map { c =>
-chat.ChatJsData.restricted(c, name = trans.chatRoom.str(), timeout = false, withNote = true, public = false)
+@tour.map { t =>
+tour: @toJson(tour.flatMap(_.top).map(lila.tournament.JsonView.top(_, lightUser))),
+}
+chat: @jsOrNull(chatOption.map(_.either).map {
+case Left(c) => {
+chat.ChatJsData.restricted(c, name = trans.chatRoom.txt(), timeout = false, withNote = ctx.isAuth, public = false)
+}
+case Right(c) => {
+chat.ChatJsData.json(c.chat, name = trans.chatRoom.txt(), timeout = c.timeout, public = true)
+}
 })
 }, document.getElementById('lichess'));
 };
@@ -24,12 +33,19 @@ chat.ChatJsData.restricted(c, name = trans.chatRoom.str(), timeout = false, with
 <link href="@routes.Round.atom(pov.gameId, pov.color.name)" type="application/atom+xml" rel="alternate" title="Game feed" />
 }
 
+@underchat = {
+@views.html.game.watchers()
+@round.blurs(pov.game)
+@round.holdAlerts(pov.game)
+}
+
 @round.layout(
 title = title,
-side = views.html.game.side(pov, (data\"game"\"initialFen").asOpt[String], tour, simul, bookmarked = bookmarked),
+side = views.html.game.side(pov, (data\"game"\"initialFen").asOpt[String].map(chess.format.FEN), tour.map(_.tour), simul, bookmarked = bookmarked),
 chat = chatOption.isDefined.option(chat.dom()),
-underchat = views.html.game.watchers().some,
+underchat = underchat.some,
 moreJs = moreJs,
+moreCss = cssTag("chat.css"),
 openGraph = povOpenGraph(pov).some,
 chessground = false,
 playing = true,
@@ -44,9 +60,9 @@ atom = atom.some) {
       }
   </div></div>
 </div>
-@if(playing.nonEmpty) {
-<div id="now_playing" class="other_games @if(ctx.pref.isBlindfold){blindfold}" data-reload-url="@routes.Round.others(pov.gameId)">
-  @others(playing)
+@if(playing.nonEmpty || simul.nonEmpty) {
+<div id="now_playing" class="other_games @if(ctx.pref.isBlindfold){blindfold}">
+  @others(playing, simul)
 </div>
 }
 }

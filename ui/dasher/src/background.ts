@@ -9,6 +9,7 @@ export interface BackgroundCtrl {
   get(): string
   getImage(): string
   setImage(i: string): void
+  trans: Trans
   close: Close
 }
 
@@ -22,17 +23,17 @@ interface Background {
   name: string
 }
 
-
-export function ctrl(data: BackgroundData, redraw: Redraw, close: Close): BackgroundCtrl {
+export function ctrl(data: BackgroundData, trans: Trans, redraw: Redraw, close: Close): BackgroundCtrl {
 
   const list: Background[] = [
-    { key: 'light', name: 'Light' },
-    { key: 'dark', name: 'Dark' },
-    { key: 'transp', name: 'Transparent' }
+    { key: 'light', name: trans.noarg('light') },
+    { key: 'dark', name: trans.noarg('dark') },
+    { key: 'transp', name: trans.noarg('transparent') }
   ];
 
   return {
-    list: list,
+    list,
+    trans,
     get: () => data.current,
     set(c: string) {
       data.current = c;
@@ -56,7 +57,7 @@ export function view(ctrl: BackgroundCtrl): VNode {
   const cur = ctrl.get();
 
   return h('div.sub.background', [
-    header('Background', ctrl.close),
+    header(ctrl.trans.noarg('background'), ctrl.close),
     h('div.selector', ctrl.list.map(bg => {
       return h('a.text', {
         class: { active: cur === bg.key },
@@ -70,11 +71,11 @@ export function view(ctrl: BackgroundCtrl): VNode {
 
 function imageInput(ctrl: BackgroundCtrl) {
   return h('div.image', [
-    h('p', 'To change the background,'),
-    h('p', 'paste an image URL:'),
+    h('p', ctrl.trans.noarg('backgroundImageUrl')),
     h('input', {
       attrs: {
         type: 'text',
+        placeholder: 'https://',
         value: ctrl.getImage()
       },
       hook: {

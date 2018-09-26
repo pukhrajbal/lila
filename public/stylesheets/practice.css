@@ -68,6 +68,9 @@ body.dark .study_box .finally {
   margin-right: 5px;
   font-size: 1.2em;
 }
+div.underboard {
+  margin-top: 20px;
+}
 .underboard .spinner {
   margin: 15px auto;
 }
@@ -127,6 +130,18 @@ body.dark .underboard .feedback {
 .underboard .feedback .comment iframe {
   margin: 10px 0;
 }
+.underboard .setting {
+  margin-top: 15px;
+  text-align: left;
+  line-height: 22px;
+  display: flex;
+}
+.underboard .setting > label {
+  order: 1;
+  flex: 1 0;
+  cursor: pointer;
+  margin-left: 10px;
+}
 
 #practice_app .section {
   width: 742px;
@@ -180,7 +195,7 @@ body.dark #practice_app .section > h2 {
 }
 @keyframes soft-bright {
   50%{
-    -webkit-filter: brightness(1.2);
+    filter: brightness(1.2);
   }
 }
 #practice_app .study.ongoing {
@@ -201,7 +216,7 @@ body.dark #practice_app .section > h2 {
 }
 #practice_app a.study.active,
 #practice_app a.study:hover {
-  -webkit-filter: brightness(1.08);
+  filter: brightness(1.08);
   transform: scale(1.02);
   opacity: 1;
 }
@@ -421,4 +436,13 @@ i.\39 c6GrCTk {
 }
 i.Z1DKk4Rl {
   background-image: url('/assets/images/practice/stone-crafting.svg');
+}
+i.ByhlXnmM {
+  background-image: url('/assets/images/practice/ghost-ally.svg');
+}
+i.pt20yRkT {
+  background-image: url('/assets/images/practice/stone-tower.svg');
+}
+i.MkDViieT {
+  background-image: url('/assets/images/practice/guarded-tower.svg');
 }

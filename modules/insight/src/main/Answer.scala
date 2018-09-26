@@ -3,9 +3,9 @@ package lila.insight
 import lila.game.{ Game, Pov }
 
 case class Answer[X](
-  question: Question[X],
-  clusters: List[Cluster[X]],
-  povs: List[Pov]
+    question: Question[X],
+    clusters: List[Cluster[X]],
+    povs: List[Pov]
 )
 
 // a row per dimension value
@@ -25,4 +25,4 @@ object Insight {
   case class Stacked(points: List[(Metric.MetricValueName, Point)]) extends Insight
 }
 
-case class Point(y: Double)
+case class Point(y: Double) extends AnyVal

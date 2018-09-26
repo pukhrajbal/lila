@@ -12,6 +12,16 @@ object Pref extends LilaController {
   private def api = Env.pref.api
   private def forms = lila.pref.DataForm
 
+  def apiGet = Scoped(_.Preference.Read) { _ => me =>
+    Env.pref.api.getPref(me) map { prefs =>
+      Ok {
+        import play.api.libs.json._
+        import lila.pref.JsonView._
+        Json.obj("prefs" -> prefs)
+      }
+    }
+  }
+
   def form(categSlug: String) = Auth { implicit ctx => me =>
     lila.pref.PrefCateg(categSlug) match {
       case None => notFound
@@ -59,12 +69,12 @@ object Pref extends LilaController {
     "soundSet" -> (forms.soundSet -> save("soundSet") _),
     "bg" -> (forms.bg -> save("bg") _),
     "bgImg" -> (forms.bgImg -> save("bgImg") _),
-    "is3d" -> (forms.is3d -> save("is3d") _)
+    "is3d" -> (forms.is3d -> save("is3d") _),
+    "zen" -> (forms.zen -> save("zen") _)
   )
 
   private def save(name: String)(value: String, ctx: Context): Fu[Cookie] =
     ctx.me ?? {
       api.setPrefString(_, name, value, notifyChange = false)
     } inject LilaCookie.session(name, value)(ctx.req)
-
 }

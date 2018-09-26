@@ -5,7 +5,8 @@ import chess.format.{ Uci, UciCharPair, FEN }
 import chess.variant.Crazyhouse
 
 import chess.Centis
-import lila.tree.Node.{ Shapes, Comment, Comments }
+import lila.tree.Eval.Score
+import lila.tree.Node.{ Shapes, Comment, Comments, Gamebook }
 
 sealed trait RootOrNode {
   val ply: Int
@@ -16,8 +17,13 @@ sealed trait RootOrNode {
   val crazyData: Option[Crazyhouse.Data]
   val children: Node.Children
   val comments: Comments
+  val gamebook: Option[Gamebook]
   val glyphs: Glyphs
+  val score: Option[Score]
+  def addChild(node: Node): RootOrNode
   def fullMoveNumber = 1 + ply / 2
+  def mainline: List[Node]
+  def color = chess.Color(ply % 2 == 0)
 }
 
 case class Node(
@@ -28,7 +34,9 @@ case class Node(
     check: Boolean,
     shapes: Shapes = Shapes(Nil),
     comments: Comments = Comments(Nil),
+    gamebook: Option[Gamebook] = None,
     glyphs: Glyphs = Glyphs.empty,
+    score: Option[Score] = None,
     clock: Option[Centis],
     crazyData: Option[Crazyhouse.Data],
     children: Node.Children
@@ -41,10 +49,19 @@ case class Node(
       copy(children = newChildren)
     }
 
+  def withoutChildren = copy(children = Node.emptyChildren)
+
+  def addChild(child: Node) = copy(children = children addNode child)
+
+  def withClock(centis: Option[Centis]) = copy(clock = centis)
+
   def isCommented = comments.value.nonEmpty
 
   def setComment(comment: Comment) = copy(comments = comments set comment)
   def deleteComment(commentId: Comment.Id) = copy(comments = comments delete commentId)
+  def deleteComments = copy(comments = Comments.empty)
+
+  def setGamebook(gamebook: Gamebook) = copy(gamebook = gamebook.some)
 
   def setShapes(s: Shapes) = copy(shapes = s)
 
@@ -56,6 +73,28 @@ case class Node(
     children.first.fold(f(this)) { main =>
       copy(children = children.update(main updateMainlineLast f))
     }
+
+  def clearAnnotations = copy(
+    comments = Comments(Nil),
+    shapes = Shapes(Nil),
+    glyphs = Glyphs.empty,
+    score = none
+  )
+
+  def merge(n: Node): Node = copy(
+    shapes = shapes ++ n.shapes,
+    comments = comments ++ n.comments,
+    gamebook = n.gamebook orElse gamebook,
+    glyphs = glyphs merge n.glyphs,
+    score = n.score orElse score,
+    clock = n.clock orElse clock,
+    crazyData = n.crazyData orElse crazyData,
+    children = n.children.nodes.foldLeft(children) {
+      case (cs, c) => children addNode c
+    }
+  )
+
+  override def toString = s"$ply.${move.san} ${children.nodes}"
 }
 
 object Node {
@@ -74,9 +113,12 @@ object Node {
     }
 
     def addNodeAt(node: Node, path: Path): Option[Children] = path.split match {
-      case None if has(node.id) => this.some
-      case None => Children(nodes :+ node).some
+      case None => addNode(node).some
       case Some((head, tail)) => updateChildren(head, _.addNodeAt(node, tail))
+    }
+
+    def addNode(node: Node): Children = get(node.id).fold(Children(nodes :+ node)) { prev =>
+      Children(nodes.filterNot(_.id == node.id) :+ prev.merge(node))
     }
 
     def deleteNodeAt(path: Path): Option[Children] = path.split match {
@@ -110,19 +152,7 @@ object Node {
       }
     }
 
-    def setShapesAt(shapes: Shapes, path: Path): Option[Children] =
-      updateAt(path, _ setShapes shapes)
-
-    def setCommentAt(comment: Comment, path: Path): Option[Children] =
-      updateAt(path, _ setComment comment)
-
-    def deleteCommentAt(commentId: Comment.Id, path: Path): Option[Children] =
-      updateAt(path, _ deleteComment commentId)
-
-    def toggleGlyphAt(glyph: Glyph, path: Path): Option[Children] =
-      updateAt(path, _ toggleGlyph glyph)
-
-    private def updateAt(path: Path, f: Node => Node): Option[Children] = path.split match {
+    def updateAt(path: Path, f: Node => Node): Option[Children] = path.split match {
       case None => none
       case Some((head, Path(Nil))) => updateWith(head, n => Some(f(n)))
       case Some((head, tail)) => updateChildren(head, _.updateAt(tail, f))
@@ -137,6 +167,12 @@ object Node {
 
     def has(id: UciCharPair): Boolean = nodes.exists(_.id == id)
 
+    def updateAllWith(op: Node => Node): Children = Children {
+      nodes.map { n =>
+        op(n.copy(children = n.children.updateAllWith(op)))
+      }
+    }
+
     def updateWith(id: UciCharPair, op: Node => Option[Node]): Option[Children] =
       get(id) flatMap op map update
 
@@ -148,6 +184,13 @@ object Node {
       case n => n
     })
 
+    def updateMainline(f: Node => Node): Children = Children(nodes match {
+      case main +: others =>
+        val newNode = f(main)
+        newNode.copy(children = newNode.children.updateMainline(f)) +: others
+      case x => x
+    })
+
     // List(0, 0, 1, 0, 2)
     def pathToIndexes(path: Path): Option[List[Int]] =
       path.split.fold(List.empty[Int].some) {
@@ -155,6 +198,10 @@ object Node {
           case (node, index) => node.children.pathToIndexes(tail).map(rest => index :: rest)
         }
       }
+
+    def countRecursive: Int = nodes.foldLeft(nodes.size) {
+      case (count, n) => count + n.children.countRecursive
+    }
   }
   val emptyChildren = Children(Vector.empty)
 
@@ -164,7 +211,9 @@ object Node {
       check: Boolean,
       shapes: Shapes = Shapes(Nil),
       comments: Comments = Comments(Nil),
+      gamebook: Option[Gamebook] = None,
       glyphs: Glyphs = Glyphs.empty,
+      score: Option[Score] = None,
       clock: Option[Centis],
       crazyData: Option[Crazyhouse.Data],
       children: Children
@@ -177,6 +226,8 @@ object Node {
 
     def withoutChildren = copy(children = Node.emptyChildren)
 
+    def addChild(child: Node) = copy(children = children addNode child)
+
     def nodeAt(path: Path): Option[RootOrNode] =
       if (path.isEmpty) this.some else children nodeAt path
 
@@ -184,18 +235,30 @@ object Node {
 
     def setShapesAt(shapes: Shapes, path: Path): Option[Root] =
       if (path.isEmpty) copy(shapes = shapes).some
-      else withChildren(_.setShapesAt(shapes, path))
+      else updateChildrenAt(path, _ setShapes shapes)
 
     def setCommentAt(comment: Comment, path: Path): Option[Root] =
       if (path.isEmpty) copy(comments = comments set comment).some
-      else withChildren(_.setCommentAt(comment, path))
+      else updateChildrenAt(path, _ setComment comment)
+
     def deleteCommentAt(commentId: Comment.Id, path: Path): Option[Root] =
       if (path.isEmpty) copy(comments = comments delete commentId).some
-      else withChildren(_.deleteCommentAt(commentId, path))
+      else updateChildrenAt(path, _ deleteComment commentId)
+
+    def setGamebookAt(gamebook: Gamebook, path: Path): Option[Root] =
+      if (path.isEmpty) copy(gamebook = gamebook.some).some
+      else updateChildrenAt(path, _ setGamebook gamebook)
 
     def toggleGlyphAt(glyph: Glyph, path: Path): Option[Root] =
       if (path.isEmpty) copy(glyphs = glyphs toggle glyph).some
-      else withChildren(_.toggleGlyphAt(glyph, path))
+      else updateChildrenAt(path, _ toggleGlyph glyph)
+
+    def setClockAt(clock: Option[Centis], path: Path): Option[Root] =
+      if (path.isEmpty) copy(clock = clock).some
+      else updateChildrenAt(path, _ withClock clock)
+
+    private def updateChildrenAt(path: Path, f: Node => Node): Option[Root] =
+      withChildren(_.updateAt(path, f))
 
     def updateMainlineLast(f: Node => Node): Root = children.first.fold(this) { main =>
       copy(children = children.update(main updateMainlineLast f))
@@ -212,6 +275,8 @@ object Node {
         case (node, _) => node.ply
       }
     }
+
+    def mainlinePath = Path(mainline.map(_.id))
   }
 
   object Root {

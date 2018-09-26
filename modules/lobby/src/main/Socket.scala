@@ -7,12 +7,12 @@ import play.api.libs.iteratee._
 import play.api.libs.json._
 
 import actorApi._
-import lila.common.PimpedJson._
 import lila.game.{ Game, AnonCookie }
 import lila.hub.actorApi.game.ChangeFeatured
 import lila.hub.actorApi.lobby._
 import lila.hub.actorApi.timeline._
 import lila.socket.actorApi.{ Connected => _, _ }
+import lila.socket.Socket.{ Uid, Uids }
 import lila.socket.SocketActor
 
 private[lobby] final class Socket(
@@ -23,14 +23,14 @@ private[lobby] final class Socket(
 
   case object Cleanup
 
-  override def preStart() {
+  override def preStart(): Unit = {
     super.preStart()
     context.system.lilaBus.subscribe(self, 'changeFeaturedGame, 'streams, 'nbMembers, 'nbRounds, 'poolGame)
     context.system.scheduler.scheduleOnce(3 seconds, self, SendHookRemovals)
     context.system.scheduler.schedule(1 minute, 1 minute, self, Cleanup)
   }
 
-  override def postStop() {
+  override def postStop(): Unit = {
     super.postStop()
     context.system.lilaBus.unsubscribe(self)
   }
@@ -47,7 +47,7 @@ private[lobby] final class Socket(
   def receiveSpecific = {
 
     case GetUids =>
-      sender ! SocketUids(members.keySet.toSet)
+      sender ! Uids(members.keySet.map(Uid.apply)(scala.collection.breakOut))
       lila.mon.lobby.socket.idle(idleUids.size)
       lila.mon.lobby.socket.hookSubscribers(hookSubscriberUids.size)
       lila.mon.lobby.socket.mobile(members.count(_._2.mobile))
@@ -58,15 +58,13 @@ private[lobby] final class Socket(
 
     case Join(uid, user, blocks, mobile) =>
       val (enumerator, channel) = Concurrent.broadcast[JsValue]
-      val member = Member(channel, user, blocks, uid.value, mobile)
-      addMember(uid.value, member)
+      val member = Member(channel, user, blocks, uid, mobile)
+      addMember(uid, member)
       sender ! Connected(enumerator, member)
 
     case ReloadTournaments(html) => notifyAllActive(makeMessage("tournaments", html))
 
     case ReloadSimuls(html) => notifyAllActive(makeMessage("simuls", html))
-
-    case NewForumPost => notifyAllActive(makeMessage("reload_forum"))
 
     case ReloadTimeline(userId) =>
       membersByUserId(userId) foreach (_ push makeMessage("reload_timeline"))
@@ -74,7 +72,7 @@ private[lobby] final class Socket(
     case AddHook(hook) =>
       val msg = makeMessage("had", hook.render)
       hookSubscriberUids.foreach { uid =>
-        withActiveMember(uid) { member =>
+        withActiveMemberByUidString(uid) { member =>
           if (Biter.showHookTo(hook, member)) member push msg
         }
       }
@@ -91,7 +89,7 @@ private[lobby] final class Socket(
       if (removedHookIds.nonEmpty) {
         val msg = makeMessage("hrm", removedHookIds)
         hookSubscriberUids.foreach { uid =>
-          withActiveMember(uid)(_ push msg)
+          withActiveMemberByUidString(uid)(_ push msg)
         }
         removedHookIds = ""
       }
@@ -130,10 +128,10 @@ private[lobby] final class Socket(
     case HookIds(ids) =>
       val msg = makeMessage("hli", ids mkString "")
       hookSubscriberUids.foreach { uid =>
-        withActiveMember(uid)(_ push msg)
+        withActiveMemberByUidString(uid)(_ push msg)
       }
 
-    case lila.hub.actorApi.StreamsOnAir(html) => notifyAll(makeMessage("streams", html))
+    case lila.hub.actorApi.streamer.StreamsOnAir(html) => notifyAll(makeMessage("streams", html))
 
     case NbMembers(nb) => pong = pong + ("d" -> JsNumber(nb))
     case lila.hub.actorApi.round.NbRounds(nb) =>
@@ -141,40 +139,38 @@ private[lobby] final class Socket(
 
     case ChangeFeatured(_, msg) => notifyAllActive(msg)
 
-    case SetIdle(uid, true) => idleUids += uid
-    case SetIdle(uid, false) => idleUids -= uid
+    case SetIdle(uid, true) => idleUids += uid.value
+    case SetIdle(uid, false) => idleUids -= uid.value
 
-    case HookSub(member, false) => hookSubscriberUids -= member.uid
+    case HookSub(member, false) => hookSubscriberUids -= member.uid.value
     case AllHooksFor(member, hooks) =>
       notifyMember("hooks", JsArray(hooks.map(_.render)))(member)
-      hookSubscriberUids += member.uid
+      hookSubscriberUids += member.uid.value
   }
 
   def redirectPlayers(p: lila.pool.PoolApi.Pairing) = {
-    withMember(p.whiteUid.value)(notifyPlayerStart(p.game, chess.White))
-    withMember(p.blackUid.value)(notifyPlayerStart(p.game, chess.Black))
+    withMember(p.whiteUid)(notifyPlayerStart(p.game, chess.White))
+    withMember(p.blackUid)(notifyPlayerStart(p.game, chess.Black))
   }
 
   def notifyPlayerStart(game: Game, color: chess.Color) =
     notifyMember("redirect", Json.obj(
       "id" -> (game fullIdOf color),
-      "url" -> playerUrl(game fullIdOf color),
-      "cookie" -> AnonCookie.json(game, color)
-    ).noNull) _
+      "url" -> playerUrl(game fullIdOf color)
+    ).add("cookie" -> AnonCookie.json(game, color))) _
 
   def notifyAllActive(msg: JsObject) =
     members.foreach {
       case (uid, member) => if (!idleUids(uid)) member push msg
     }
 
-  def withActiveMember(uid: String)(f: Member => Unit) {
+  private def withActiveMemberByUidString(uid: String)(f: Member => Unit): Unit =
     if (!idleUids(uid)) members get uid foreach f
-  }
 
-  override def quit(uid: String) {
+  override def quit(uid: Uid): Unit = {
     super.quit(uid)
-    idleUids -= uid
-    hookSubscriberUids -= uid
+    idleUids -= uid.value
+    hookSubscriberUids -= uid.value
   }
 
   def playerUrl(fullId: String) = s"/$fullId"

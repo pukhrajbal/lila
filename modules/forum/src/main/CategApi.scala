@@ -54,7 +54,8 @@ private[forum] final class CategApi(env: Env) {
         troll = false,
         hidden = topic.hidden,
         lang = "en".some,
-        categId = categ.id
+        categId = categ.id,
+        modIcon = None
       )
       env.categColl.insert(categ).void >>
         env.postColl.insert(post).void >>
@@ -65,22 +66,20 @@ private[forum] final class CategApi(env: Env) {
   def show(slug: String, page: Int, troll: Boolean): Fu[Option[(Categ, Paginator[TopicView])]] =
     optionT(CategRepo bySlug slug) flatMap { categ =>
       optionT(env.topicApi.paginator(categ, page, troll) map { (categ, _).some })
-    }
+    } run
 
   def denormalize(categ: Categ): Funit = for {
-    topics ← TopicRepo byCateg categ
-    topicIds = topics map (_.id)
-    nbPosts ← PostRepo countByTopics topicIds
-    lastPost ← PostRepo lastByTopics topicIds
-    topicsTroll ← TopicRepoTroll byCateg categ
-    topicIdsTroll = topicsTroll map (_.id)
-    nbPostsTroll ← PostRepoTroll countByTopics topicIdsTroll
-    lastPostTroll ← PostRepoTroll lastByTopics topicIdsTroll
+    nbTopics ← TopicRepo countByCateg categ
+    nbPosts ← PostRepo countByCateg categ
+    lastPost ← PostRepo lastByCateg categ
+    nbTopicsTroll ← TopicRepoTroll countByCateg categ
+    nbPostsTroll ← PostRepoTroll countByCateg categ
+    lastPostTroll ← PostRepoTroll lastByCateg categ
     _ ← env.categColl.update($id(categ.id), categ.copy(
-      nbTopics = topics.size,
+      nbTopics = nbTopics,
       nbPosts = nbPosts,
       lastPostId = lastPost ?? (_.id),
-      nbTopicsTroll = topicsTroll.size,
+      nbTopicsTroll = nbTopicsTroll,
       nbPostsTroll = nbPostsTroll,
       lastPostIdTroll = lastPostTroll ?? (_.id)
     )).void

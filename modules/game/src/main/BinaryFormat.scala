@@ -2,30 +2,30 @@ package lila.game
 
 import org.joda.time.DateTime
 import scala.collection.breakOut
-import scala.collection.Searching._
 import scala.collection.breakOut
+import scala.collection.Searching._
 import scala.util.Try
 
-import chess._
 import chess.variant.Variant
+import chess.{ ToOptionOpsFromOption => _, _ }
+import chess.format.Uci
+import org.lichess.compression.clock.{ Encoder => ClockEncoder }
 
 import lila.db.ByteArray
-
-import org.lichess.clockencoder.{ Encoder => ClockEncoder }
 
 object BinaryFormat {
 
   object pgn {
 
     def write(moves: PgnMoves): ByteArray = ByteArray {
-      format.pgn.Binary.writeMoves(moves).get.toArray
+      format.pgn.Binary.writeMoves(moves).get
     }
 
     def read(ba: ByteArray): PgnMoves =
-      format.pgn.Binary.readMoves(ba.value.toList).get
+      format.pgn.Binary.readMoves(ba.value.toList).get.toVector
 
     def read(ba: ByteArray, nb: Int): PgnMoves =
-      format.pgn.Binary.readMoves(ba.value.toList, nb).get
+      format.pgn.Binary.readMoves(ba.value.toList, nb).get.toVector
   }
 
   object clockHistory {
@@ -41,13 +41,13 @@ object BinaryFormat {
       if (flagged) decoded :+ Centis(0) else decoded
     }
 
-    def read(start: Centis, bw: ByteArray, bb: ByteArray, flagged: Option[Color], gameId: String) = Try {
+    def read(start: Centis, bw: ByteArray, bb: ByteArray, flagged: Option[Color]) = Try {
       ClockHistory(
         readSide(start, bw, flagged has White),
         readSide(start, bb, flagged has Black)
       )
     }.fold(
-      e => { logger.warn(s"Exception decoding history on game $gameId", e); none },
+      e => { logger.warn(s"Exception decoding history", e); none },
       some
     )
   }
@@ -80,11 +80,24 @@ object BinaryFormat {
   }
 
   case class clock(start: Timestamp) {
+
+    def legacyElapsed(clock: Clock, color: Color) =
+      clock.limit - clock.players(color).remaining
+
+    def computeRemaining(config: Clock.Config, legacyElapsed: Centis) =
+      config.limit - legacyElapsed
+
+    // TODO: new binary clock format
+    // - clock history
+    // - berserk bits
+    // - "real" elapsed
+    // - lag stats
+
     def write(clock: Clock): ByteArray = {
       Array(writeClockLimit(clock.limitSeconds), clock.incrementSeconds.toByte) ++
-        writeSignedInt24(clock.whiteTime.centis) ++
-        writeSignedInt24(clock.blackTime.centis) ++
-        clock.timerOption.fold(Array.empty[Byte])(writeTimer)
+        writeSignedInt24(legacyElapsed(clock, White).centis) ++
+        writeSignedInt24(legacyElapsed(clock, Black).centis) ++
+        clock.timer.fold(Array.empty[Byte])(writeTimer)
     }
 
     def read(ba: ByteArray, whiteBerserk: Boolean, blackBerserk: Boolean): Color => Clock = color => {
@@ -101,33 +114,34 @@ object BinaryFormat {
       ia match {
         case Array(b1, b2, b3, b4, b5, b6, b7, b8, _*) => {
           val config = Clock.Config(readClockLimit(b1), b2)
-          val whiteTime = Centis(readSignedInt24(b3, b4, b5))
-          val blackTime = Centis(readSignedInt24(b6, b7, b8))
-          timer.fold[Clock](
-            PausedClock(
-              config = config,
-              color = color,
-              whiteTime = whiteTime,
-              blackTime = blackTime,
-              whiteBerserk = whiteBerserk,
-              blackBerserk = blackBerserk
-            )
-          )(t =>
-              RunningClock(
-                config = config,
-                color = color,
-                whiteTime = whiteTime,
-                blackTime = blackTime,
-                whiteBerserk = whiteBerserk,
-                blackBerserk = blackBerserk,
-                timer = t
-              ))
+          val legacyWhite = Centis(readSignedInt24(b3, b4, b5))
+          val legacyBlack = Centis(readSignedInt24(b6, b7, b8))
+          Clock(
+            config = config,
+            color = color,
+            players = Color.Map(
+              ClockPlayer.withConfig(config).copy(berserk = whiteBerserk).setRemaining(computeRemaining(config, legacyWhite)),
+              ClockPlayer.withConfig(config).copy(berserk = blackBerserk).setRemaining(computeRemaining(config, legacyBlack))
+            ),
+            timer = timer
+          )
         }
         case _ => sys error s"BinaryFormat.clock.read invalid bytes: ${ba.showBytes}"
       }
     }
 
-    private def writeTimer(timer: Timestamp) = writeInt((timer - start).centis)
+    private def writeTimer(timer: Timestamp) = {
+      val centis = (timer - start).centis
+      /*
+       * A zero timer is resolved by `readTimer` as the absence of a timer.
+       * As a result, a clock that is started with a timer = 0
+       * resolves as a clock that is not started.
+       * This can happen when the clock was started at the same time as the game
+       * For instance in simuls
+       */
+      val nonZero = centis atLeast 1
+      writeInt(nonZero)
+    }
 
     private def readTimer(l: Int) =
       if (l != 0) Some(start + Centis(l)) else None
@@ -151,44 +165,37 @@ object BinaryFormat {
     def apply(start: DateTime) = new clock(Timestamp(start.getMillis))
   }
 
-  object castleLastMoveTime {
+  object castleLastMove {
 
-    def write(clmt: CastleLastMoveTime): ByteArray = {
+    def write(clmt: CastleLastMove): ByteArray = {
 
-      val castleInt = clmt.castles.toList.zipWithIndex.foldLeft(0) {
+      val castleInt = clmt.castles.toSeq.zipWithIndex.foldLeft(0) {
         case (acc, (false, _)) => acc
         case (acc, (true, p)) => acc + (1 << (3 - p))
       }
 
       def posInt(pos: Pos): Int = ((pos.x - 1) << 3) + pos.y - 1
-      val lastMoveInt = clmt.lastMove.fold(0) {
-        case (f, t) => (posInt(f) << 6) + posInt(t)
+      val lastMoveInt = clmt.lastMove.map(_.origDest).fold(0) {
+        case (o, d) => (posInt(o) << 6) + posInt(d)
       }
-      Array((castleInt << 4) + (lastMoveInt >> 8) toByte, lastMoveInt.toByte) ++
-        clmt.check.map(x => posInt(x).toByte)
+      Array((castleInt << 4) + (lastMoveInt >> 8) toByte, lastMoveInt.toByte)
     }
 
-    def read(ba: ByteArray): CastleLastMoveTime = {
+    def read(ba: ByteArray): CastleLastMove = {
       val ints = ba.value map toInt
-      val size = ints.size
-
-      if (size < 2 || size > 6) sys error s"BinaryFormat.clmt.read invalid: ${ba.showBytes}"
-      val checkByte = if (size == 6 || size == 3) ints.lastOption else None
-
-      doRead(ints(0), ints(1), checkByte)
+      doRead(ints(0), ints(1))
     }
 
     private def posAt(x: Int, y: Int) = Pos.posAt(x + 1, y + 1)
 
-    private def doRead(b1: Int, b2: Int, checkByte: Option[Int]) =
-      CastleLastMoveTime(
+    private def doRead(b1: Int, b2: Int) =
+      CastleLastMove(
         castles = Castles(b1 > 127, (b1 & 64) != 0, (b1 & 32) != 0, (b1 & 16) != 0),
         lastMove = for {
-          from ← posAt((b1 & 15) >> 1, ((b1 & 1) << 2) + (b2 >> 6))
-          to ← posAt((b2 & 63) >> 3, b2 & 7)
-          if from != Pos.A1 || to != Pos.A1
-        } yield from -> to,
-        check = checkByte flatMap { x => posAt(x >> 3, x & 7) }
+          orig ← posAt((b1 & 15) >> 1, ((b1 & 1) << 2) + (b2 >> 6))
+          dest ← posAt((b2 & 63) >> 3, b2 & 7)
+          if orig != Pos.A1 || dest != Pos.A1
+        } yield Uci.Move(orig, dest)
       )
   }
 

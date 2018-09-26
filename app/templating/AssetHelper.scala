@@ -2,112 +2,104 @@ package lila.app
 package templating
 
 import controllers.routes
+import play.api.mvc.RequestHeader
 import play.twirl.api.Html
 
 import lila.api.Context
-import lila.common.AssetVersion
+import lila.common.{ AssetVersion, ContentSecurityPolicy }
 
 trait AssetHelper { self: I18nHelper =>
 
   def isProd: Boolean
 
   val assetDomain = lila.api.Env.current.Net.AssetDomain
+  val socketDomain = lila.api.Env.current.Net.SocketDomain
 
   val assetBaseUrl = s"//$assetDomain"
 
+  def assetVersion = AssetVersion.current
+
+  def assetUrl(path: String): String = s"$assetBaseUrl/assets/_$assetVersion/$path"
+
   def cdnUrl(path: String) = s"$assetBaseUrl$path"
-  def staticUrl(path: String) = s"$assetBaseUrl${routes.Assets.at(path)}"
+  def staticUrl(path: String) = s"$assetBaseUrl/assets/$path"
 
   def dbImageUrl(path: String) = s"$assetBaseUrl/image/$path"
 
-  def cssTag(name: String, staticDomain: Boolean = true)(implicit ctx: Context): Html =
-    cssAt("stylesheets/" + name, staticDomain)
+  def cssTag(name: String): Html = cssAt("stylesheets/" + name)
 
-  def cssVendorTag(name: String, staticDomain: Boolean = true)(implicit ctx: Context) =
-    cssAt("vendor/" + name, staticDomain)
+  def cssVendorTag(name: String) = cssAt("vendor/" + name)
 
-  def cssAt(path: String, staticDomain: Boolean, version: AssetVersion): Html = Html {
-    val href = if (staticDomain) staticUrl(path) else routes.Assets.at(path)
-    s"""<link href="$href?v=$version" type="text/css" rel="stylesheet"/>"""
+  def cssAt(path: String): Html = Html {
+    s"""<link href="${assetUrl(path)}" type="text/css" rel="stylesheet"/>"""
   }
-  def cssAt(path: String, staticDomain: Boolean = true)(implicit ctx: Context): Html =
-    cssAt(path, staticDomain, ctx.pageData.assetVersion)
 
-  def jsTag(name: String, async: Boolean = false)(implicit ctx: Context) =
+  def jsTag(name: String, async: Boolean = false) =
     jsAt("javascripts/" + name, async = async)
 
-  def jsTagCompiled(name: String)(implicit ctx: Context) =
-    if (isProd) jsAt("compiled/" + name) else jsTag(name)
-
-  def jsAt(path: String, static: Boolean, async: Boolean, version: AssetVersion): Html = Html {
-    s"""<script${if (async) " async defer" else ""} src="${static.fold(staticUrl(path), path)}?v=$version"></script>"""
+  def jsAt(path: String, async: Boolean = false): Html = Html {
+    val src = assetUrl(path)
+    s"""<script${if (async) " async defer" else ""} src="$src"></script>"""
   }
-  def jsAt(path: String, static: Boolean = true, async: Boolean = false)(implicit ctx: Context): Html =
-    jsAt(path, static, async, ctx.pageData.assetVersion)
 
   val jQueryTag = Html {
     s"""<script src="${staticUrl("javascripts/vendor/jquery.min.js")}"></script>"""
   }
 
-  val highchartsTag = cdnOrLocal(
-    cdn = "//code.highcharts.com/4.1.4/highcharts.js",
-    test = "window.Highcharts",
-    local = staticUrl("vendor/highcharts4/highcharts.js")
-  )
+  def roundTag =
+    jsAt(s"compiled/lichess.round${isProd ?? (".min")}.js", async = true)
 
-  val highchartsLatestTag = cdnOrLocal(
-    cdn = "//code.highcharts.com/4.2/highcharts.js",
-    test = "window.Highcharts",
-    local = staticUrl("vendor/highcharts-4.2.5/highcharts.js")
-  )
+  val highchartsLatestTag = Html {
+    s"""<script src="${staticUrl("vendor/highcharts-4.2.5/highcharts.js")}"></script>"""
+  }
 
   val highchartsMoreTag = Html {
-    """<script src="//code.highcharts.com/4.1.4/highcharts-more.js"></script>"""
+    s"""<script src="${staticUrl("vendor/highcharts-4.2.5/highcharts-more.js")}"></script>"""
   }
 
-  private val momentJsMissingLangs = Set("le", "pi", "tp", "ky", "ga", "zu", "la", "tg", "mg", "as", "yo", "ps", "fp", "ur", "tc", "ia", "jb", "gu", "kn", "gd", "kb", "io", "sw", "sa", "kk", "mn")
-
-  def momentLangUrl(implicit ctx: lila.api.Context): Option[String] = {
-    val l = lang(ctx)
-    if (momentJsMissingLangs contains l.language) none
-    else ((l.language, l.country.toLowerCase) match {
-      case ("en", "us") => none
-      case ("en", "au" | "ca" | "gb") => l.code.some
-      case ("pt", "br") => l.code.some
-      case ("zh", "tw") => l.code.some
-      case ("zh", _) => "zh-cn".some
-      case ("ar", "ma" | "sa" | "tn") => l.code.some
-      case ("fr", "ca") => l.code.some
-      case _ => l.language.some
-    }).map { locale => s"/assets/vendor/moment/locale/${locale.toLowerCase}.js" }
+  val tagmanagerTag = Html {
+    s"""<script src="${staticUrl("vendor/tagmanager/tagmanager.js")}"></script>"""
   }
 
-  val tagmanagerTag = cdnOrLocal(
-    cdn = "//cdnjs.cloudflare.com/ajax/libs/tagmanager/3.0.0/tagmanager.js",
-    test = "$.tagsManager",
-    local = staticUrl("vendor/tagmanager/tagmanager.js")
-  )
-
-  val typeaheadTag = cdnOrLocal(
-    cdn = "//cdnjs.cloudflare.com/ajax/libs/typeahead.js/0.11.1/typeahead.bundle.min.js",
-    test = "$.typeahead",
-    local = staticUrl("javascripts/vendor/typeahead.bundle.min.js")
-  )
+  val typeaheadTag = Html {
+    s"""<script src="${staticUrl("javascripts/vendor/typeahead.bundle.min.js")}"></script>"""
+  }
 
   val fingerprintTag = Html {
     s"""<script async defer src="${staticUrl("javascripts/vendor/fp2.min.js")}"></script>"""
   }
 
-  private def cdnOrLocal(cdn: String, test: String, local: String) = Html {
-    if (isProd)
-      s"""<script src="$cdn"></script><script>$test || document.write('<script src="$local">\\x3C/script>')</script>"""
-    else
-      s"""<script src="$local"></script>"""
+  val flatpickrTag = Html {
+    s"""<script async defer src="${staticUrl("javascripts/vendor/flatpickr.min.js")}"></script>"""
   }
 
-  def embedJs(js: String): Html = Html {
-    val escaped = js.replace("</script", "<|script")
-    s"""<script>$escaped</script>"""
+  val infiniteScrollTag = jsTag("vendor/jquery.infinitescroll.min.js")
+
+  def basicCsp(implicit req: RequestHeader): ContentSecurityPolicy = {
+    val assets = if (req.secure) "https://" + assetDomain else assetDomain
+    val socket = (if (req.secure) "wss://" else "ws://") + socketDomain
+    ContentSecurityPolicy(
+      defaultSrc = List("'self'", assets),
+      connectSrc = List("'self'", assets, socket + ":*", lila.api.Env.current.ExplorerEndpoint, lila.api.Env.current.TablebaseEndpoint),
+      styleSrc = List("'self'", "'unsafe-inline'", assets, "https://fonts.googleapis.com"),
+      fontSrc = List("'self'", assetDomain, "https://fonts.gstatic.com"),
+      frameSrc = List("'self'", assets, "https://www.youtube.com"),
+      workerSrc = List("'self'", assets),
+      imgSrc = List("data:", "*"),
+      scriptSrc = List("'self'", assets),
+      baseUri = List("'none'")
+    )
   }
-  def embedJs(js: Html): Html = embedJs(js.body)
+
+  def defaultCsp(implicit ctx: Context): ContentSecurityPolicy = {
+    val csp = basicCsp(ctx.req)
+    ctx.nonce.fold(csp)(csp.withNonce(_))
+  }
+
+  def embedJsUnsafe(js: String)(implicit ctx: Context): Html = Html {
+    val nonce = ctx.nonce ?? { nonce => s""" nonce="$nonce"""" }
+    s"""<script$nonce>$js</script>"""
+  }
+
+  def embedJs(js: Html)(implicit ctx: Context): Html = embedJsUnsafe(js.body)
 }

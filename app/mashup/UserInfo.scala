@@ -1,6 +1,8 @@
 package lila.app
 package mashup
 
+import play.api.data.Form
+
 import lila.api.Context
 import lila.bookmark.BookmarkApi
 import lila.forum.PostApi
@@ -12,18 +14,17 @@ import lila.user.{ User, Trophy, Trophies, TrophyApi }
 case class UserInfo(
     user: User,
     ranks: lila.rating.UserRankMap,
-    nbPlaying: Int,
     hasSimul: Boolean,
-    crosstable: Option[Crosstable],
-    nbBookmark: Int,
-    nbImported: Int,
     ratingChart: Option[String],
+    nbs: UserInfo.NbGames,
     nbFollowers: Int,
     nbBlockers: Option[Int],
     nbPosts: Int,
     nbStudies: Int,
     playTime: Option[User.PlayTime],
     trophies: Trophies,
+    shields: List[lila.tournament.TournamentShield.Award],
+    revolutions: List[lila.tournament.Revolution.Award],
     teamIds: List[String],
     isStreamer: Boolean,
     isCoach: Boolean,
@@ -31,34 +32,27 @@ case class UserInfo(
     completionRate: Option[Double]
 ) {
 
-  def nbRated = user.count.rated
-
-  def nbWithMe = crosstable ?? (_.nbGames)
-
-  def percentRated: Int = math.round(nbRated / user.count.game.toFloat * 100)
+  def crosstable = nbs.crosstable
 
   def completionRatePercent = completionRate.map { cr => math.round(cr * 100) }
 
-  def isPublicMod = lila.security.Granter(_.PublicMod)(user)
-  def isDeveloper = lila.security.Granter(_.Developer)(user)
-
   lazy val allTrophies = List(
-    isPublicMod option Trophy(
+    Granter(_.PublicMod)(user) option Trophy(
       _id = "",
       user = user.id,
       kind = Trophy.Kind.Moderator,
       date = org.joda.time.DateTime.now
     ),
-    isDeveloper option Trophy(
+    Granter(_.Developer)(user) option Trophy(
       _id = "",
       user = user.id,
       kind = Trophy.Kind.Developer,
       date = org.joda.time.DateTime.now
     ),
-    isStreamer option Trophy(
+    Granter(_.Verified)(user) option Trophy(
       _id = "",
       user = user.id,
-      kind = Trophy.Kind.Streamer,
+      kind = Trophy.Kind.Verified,
       date = org.joda.time.DateTime.now
     )
   ).flatten ::: trophies
@@ -68,51 +62,105 @@ case class UserInfo(
 
 object UserInfo {
 
+  sealed abstract class Angle(val key: String)
+  object Angle {
+    case object Activity extends Angle("activity")
+    case class Games(searchForm: Option[Form[_]]) extends Angle("games")
+    case object Other extends Angle("other")
+  }
+
+  case class Social(
+      relation: Option[lila.relation.Relation],
+      notes: List[lila.user.Note],
+      followable: Boolean,
+      blocked: Boolean
+  )
+
+  object Social {
+    def apply(
+      relationApi: RelationApi,
+      noteApi: lila.user.NoteApi,
+      prefApi: lila.pref.PrefApi
+    )(u: User, ctx: Context): Fu[Social] =
+      ctx.userId.?? { relationApi.fetchRelation(_, u.id) } zip
+        ctx.me.?? { me =>
+          relationApi fetchFriends me.id flatMap { noteApi.get(u, me, _, ctx.me ?? Granter(_.ModNote)) }
+        } zip
+        ctx.isAuth.?? { prefApi followable u.id } zip
+        ctx.userId.?? { relationApi.fetchBlocks(u.id, _) } map {
+          case relation ~ notes ~ followable ~ blocked =>
+            Social(relation, notes, followable, blocked)
+        }
+  }
+
+  case class NbGames(
+      crosstable: Option[Crosstable.WithMatchup],
+      playing: Int,
+      imported: Int,
+      bookmark: Int
+  ) {
+    def withMe: Option[Int] = crosstable.map(_.crosstable.nbGames)
+  }
+
+  object NbGames {
+    def apply(
+      bookmarkApi: BookmarkApi,
+      gameCached: lila.game.Cached,
+      crosstableApi: lila.game.CrosstableApi
+    )(u: User, ctx: Context): Fu[NbGames] =
+      (ctx.me.filter(u!=) ?? { me => crosstableApi.withMatchup(me.id, u.id) }) zip
+        gameCached.nbPlaying(u.id) zip
+        gameCached.nbImportedBy(u.id) zip
+        bookmarkApi.countByUser(u) map {
+          case crosstable ~ playing ~ imported ~ bookmark =>
+            NbGames(
+              crosstable,
+              playing = playing,
+              imported = imported,
+              bookmark = bookmark
+            )
+        }
+  }
+
   def apply(
-    bookmarkApi: BookmarkApi,
     relationApi: RelationApi,
     trophyApi: TrophyApi,
-    gameCached: lila.game.Cached,
-    crosstableApi: lila.game.CrosstableApi,
+    shieldApi: lila.tournament.TournamentShieldApi,
+    revolutionApi: lila.tournament.RevolutionApi,
     postApi: PostApi,
     studyRepo: lila.study.StudyRepo,
     getRatingChart: User => Fu[Option[String]],
-    getRanks: String => Fu[Map[String, Int]],
-    isHostingSimul: String => Fu[Boolean],
-    fetchIsStreamer: String => Fu[Boolean],
+    getRanks: User.ID => Fu[Map[String, Int]],
+    isHostingSimul: User.ID => Fu[Boolean],
+    fetchIsStreamer: User => Fu[Boolean],
     fetchTeamIds: User.ID => Fu[List[String]],
     fetchIsCoach: User => Fu[Boolean],
     insightShare: lila.insight.Share,
     getPlayTime: User => Fu[Option[User.PlayTime]],
     completionRate: User.ID => Fu[Option[Double]]
-  )(user: User, ctx: Context): Fu[UserInfo] =
+  )(user: User, nbs: NbGames, ctx: Context): Fu[UserInfo] =
     getRanks(user.id) zip
-      (gameCached nbPlaying user.id) zip
-      gameCached.nbImportedBy(user.id) zip
-      (ctx.me.filter(user!=) ?? { me => crosstableApi(me.id, user.id) }) zip
       getRatingChart(user) zip
       relationApi.countFollowers(user.id) zip
       (ctx.me ?? Granter(_.UserSpy) ?? { relationApi.countBlockers(user.id) map (_.some) }) zip
       postApi.nbByUser(user.id) zip
       studyRepo.countByOwner(user.id) zip
       trophyApi.findByUser(user) zip
+      shieldApi.active(user) zip
+      revolutionApi.active(user) zip
       fetchTeamIds(user.id) zip
       fetchIsCoach(user) zip
-      fetchIsStreamer(user.id) zip
+      fetchIsStreamer(user) zip
       (user.count.rated >= 10).??(insightShare.grant(user, ctx.me)) zip
       getPlayTime(user) zip
-      completionRate(user.id) zip
-      bookmarkApi.countByUser(user) flatMap {
-        case ranks ~ nbPlaying ~ nbImported ~ crosstable ~ ratingChart ~ nbFollowers ~ nbBlockers ~ nbPosts ~ nbStudies ~ trophies ~ teamIds ~ isCoach ~ isStreamer ~ insightVisible ~ playTime ~ completionRate ~ nbBookmarks =>
-          (nbPlaying > 0) ?? isHostingSimul(user.id) map { hasSimul =>
+      completionRate(user.id) flatMap {
+        case ranks ~ ratingChart ~ nbFollowers ~ nbBlockers ~ nbPosts ~ nbStudies ~ trophies ~ shields ~ revols ~ teamIds ~ isCoach ~ isStreamer ~ insightVisible ~ playTime ~ completionRate =>
+          (nbs.playing > 0) ?? isHostingSimul(user.id) map { hasSimul =>
             new UserInfo(
               user = user,
               ranks = ranks,
-              nbPlaying = nbPlaying,
+              nbs = nbs,
               hasSimul = hasSimul,
-              crosstable = crosstable,
-              nbBookmark = nbBookmarks,
-              nbImported = nbImported,
               ratingChart = ratingChart,
               nbFollowers = nbFollowers,
               nbBlockers = nbBlockers,
@@ -120,6 +168,8 @@ object UserInfo {
               nbStudies = nbStudies,
               playTime = playTime,
               trophies = trophies,
+              shields = shields,
+              revolutions = revols,
               teamIds = teamIds,
               isStreamer = isStreamer,
               isCoach = isCoach,

@@ -23,9 +23,10 @@
   "homepage": "https://github.com/ornicar/lila",
   "devDependencies": {
     "@types/jquery": "^2.0",
+    "@types/lichess": "1.0.0",
     "browserify": "^14",
     "gulp": "^3",
-    "gulp-uglify": "^2",
+    "gulp-uglify": "^3",
     "gulp-util": "^3",
     "tsify": "^3",
     "typescript": "^2",
@@ -34,14 +35,13 @@
     "watchify": "^3"
   },
   "dependencies": {
-    "autolink-js": "^1.0.2",
-    "ceval": "file:../ceval",
-    "chess": "file:../chess",
-    "chessground": "^6.4",
-    "common": "file:../common",
-    "game": "file:../game",
-    "mithril": "github:ornicar/mithril.js#lila-vdom-only-2",
-    "tree": "file:../tree",
-    "types": "file:../types"
+    "ceval": "1.0.0",
+    "chat": "2.0.0",
+    "chess": "1.0.0",
+    "chessground": "^7.3",
+    "common": "1.0.0",
+    "game": "1.0.0",
+    "snabbdom": "ornicar/snabbdom#lichess",
+    "tree": "1.0.0"
   }
 }

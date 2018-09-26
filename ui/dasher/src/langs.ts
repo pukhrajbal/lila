@@ -1,7 +1,7 @@
 import { h } from 'snabbdom'
 import { VNode } from 'snabbdom/vnode'
 
-import { Redraw, Close, spinner, bind, header } from './util'
+import { Redraw, Close, spinner, header } from './util'
 import { get } from './xhr'
 
 export interface Lang {
@@ -20,10 +20,11 @@ export interface LangsCtrl {
   data: LangsData
   list(): Lang[] | undefined
   load(): void
+  trans: Trans
   close: Close
 }
 
-export function ctrl(data: LangsData, redraw: Redraw, close: Close): LangsCtrl {
+export function ctrl(data: LangsData, trans: Trans, redraw: Redraw, close: Close): LangsCtrl {
 
   let list: Lang[] | undefined;
 
@@ -31,7 +32,7 @@ export function ctrl(data: LangsData, redraw: Redraw, close: Close): LangsCtrl {
     data,
     list: () => list,
     load() {
-      get(window.lichess.assetUrl('/assets/trans/refs.json'), true).then(d => {
+      get(window.lichess.assetUrl('trans/refs.json'), true).then(d => {
         const accs: Lang[] = [];
         const others: Lang[] = [];
         d.forEach((l: Lang) => {
@@ -42,6 +43,7 @@ export function ctrl(data: LangsData, redraw: Redraw, close: Close): LangsCtrl {
         redraw();
       });
     },
+    trans,
     close
   };
 }
@@ -52,7 +54,7 @@ export function view(ctrl: LangsCtrl): VNode {
   if (!list) ctrl.load();
 
   return h('div.sub.langs', [
-    header('Language', ctrl.close),
+    header(ctrl.trans.noarg('language'), ctrl.close),
     list ? h('form', {
       attrs: { method: 'post', action: '/translation/select' }
     }, langLinks(ctrl, list)) : spinner()
@@ -62,7 +64,7 @@ export function view(ctrl: LangsCtrl): VNode {
 function langLinks(ctrl: LangsCtrl, list: Lang[]) {
   const links = list.map(langView(ctrl.data.current, ctrl.data.accepted));
   links.push(h('a', {
-    attrs: { href: '/translation/contribute' }
+    attrs: { href: 'https://crowdin.com/project/lichess' }
   }, 'Help translate lichess'));
   return links;
 }
@@ -73,7 +75,8 @@ function langView(current: Code, accepted: Code[]) {
     attrs: {
       type: 'submit',
       name: 'lang',
-      value: l[0]
+      value: l[0],
+      title: l[0]
     },
   }, l[1]);
 }

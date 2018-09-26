@@ -3,19 +3,21 @@ package lila.team
 import actorApi._
 import akka.actor.ActorSelection
 import lila.db.dsl._
-import lila.hub.actorApi.forum.MakeTeam
+import lila.hub.actorApi.team.{ CreateTeam, JoinTeam }
 import lila.hub.actorApi.timeline.{ Propagate, TeamJoin, TeamCreate }
+import lila.mod.ModlogApi
 import lila.user.{ User, UserRepo, UserContext }
 import org.joda.time.Period
-import reactivemongo.api.Cursor
+import reactivemongo.api.{ Cursor, ReadPreference }
 
 final class TeamApi(
     coll: Colls,
     cached: Cached,
     notifier: Notifier,
-    forum: ActorSelection,
+    bus: lila.common.Bus,
     indexer: ActorSelection,
-    timeline: ActorSelection
+    timeline: ActorSelection,
+    modLog: ModlogApi
 ) {
 
   import BSONHandlers._
@@ -37,12 +39,12 @@ final class TeamApi(
     )
     coll.team.insert(team) >>
       MemberRepo.add(team.id, me.id) >>- {
-        (cached invalidateTeamIds me.id)
-        (forum ! MakeTeam(team.id, team.name))
-        (indexer ! InsertTeam(team))
-        (timeline ! Propagate(
+        cached invalidateTeamIds me.id
+        indexer ! InsertTeam(team)
+        timeline ! Propagate(
           TeamCreate(me.id, team.id)
-        ).toFollowersOf(me.id))
+        ).toFollowersOf(me.id)
+        bus.publish(CreateTeam(id = team.id, name = team.name, userId = me.id), 'team)
       } inject team
   }
 
@@ -52,7 +54,11 @@ final class TeamApi(
       description = e.description,
       open = e.isOpen
     ) |> { team =>
-      coll.team.update($id(team.id), team).void >>- (indexer ! InsertTeam(team))
+      coll.team.update($id(team.id), team).void >>
+        !team.isCreator(me.id) ?? {
+          modLog.teamEdit(me.id, team.createdBy, team.name)
+        } >>-
+        (indexer ! InsertTeam(team))
     }
   }
 
@@ -115,12 +121,21 @@ final class TeamApi(
       doJoin(team, user.id) >>- notifier.acceptRequest(team, request))
   } yield ()
 
+  def deleteRequestsByUserId(userId: lila.user.User.ID) =
+    RequestRepo.getByUserId(userId) flatMap {
+      _.map { request =>
+        RequestRepo.remove(request.id) >>
+          TeamRepo.creatorOf(request.team).map { _ ?? cached.nbRequests.invalidate }
+      }.sequenceFu
+    }
+
   def doJoin(team: Team, userId: String): Funit = !belongsTo(team.id, userId) flatMap {
     _ ?? {
       MemberRepo.add(team.id, userId) >>
         TeamRepo.incMembers(team.id, +1) >>- {
           cached invalidateTeamIds userId
           timeline ! Propagate(TeamJoin(userId, team.id)).toFollowersOf(userId)
+          bus.publish(JoinTeam(id = team.id, userId = userId), 'team)
         }
     } recover lila.db.recoverDuplicateKey(_ => ())
   }
@@ -142,7 +157,20 @@ final class TeamApi(
 
   def quitAll(userId: String): Funit = MemberRepo.removeByUser(userId)
 
-  def kick(team: Team, userId: String): Funit = doQuit(team, userId)
+  def kick(team: Team, userId: String, me: User): Funit =
+    doQuit(team, userId) >>
+      !team.isCreator(me.id) ?? {
+        modLog.teamKick(me.id, userId, team.name)
+      }
+
+  def changeOwner(team: Team, userId: String, me: User): Funit =
+    MemberRepo.exists(team.id, userId) flatMap { e =>
+      e ?? {
+        TeamRepo.changeOwner(team.id, userId) >>
+          modLog.teamMadeOwner(me.id, userId, team.name) >>-
+          notifier.madeOwner(team, userId)
+      }
+    }
 
   def enable(team: Team): Funit =
     TeamRepo.enable(team).void >>- (indexer ! InsertTeam(team))
@@ -170,7 +198,7 @@ final class TeamApi(
   def nbRequests(teamId: String) = cached.nbRequests get teamId
 
   def recomputeNbMembers =
-    coll.team.find($empty).cursor[Team]().foldWhileM({}) { (_, team) =>
+    coll.team.find($empty).cursor[Team](ReadPreference.secondaryPreferred).foldWhileM({}) { (_, team) =>
       for {
         nb <- MemberRepo.countByTeam(team.id)
         _ <- coll.team.updateField($id(team.id), "nbMembers", nb)

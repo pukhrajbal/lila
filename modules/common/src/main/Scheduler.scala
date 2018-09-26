@@ -7,51 +7,50 @@ import ornicar.scalalib.Random.{ approximatly, nextString }
 
 final class Scheduler(scheduler: akka.actor.Scheduler, enabled: Boolean, debug: Boolean) {
 
-  def throttle[A](delay: FiniteDuration)(batch: Seq[A])(op: A => Unit) {
+  def throttle[A](delay: FiniteDuration)(batch: Seq[A])(op: A => Unit): Unit = {
     batch.zipWithIndex foreach {
       case (a, i) => try {
-        scheduler.scheduleOnce((1 + i) * delay) { op(a) }
-      }
-      catch {
+        scheduler.scheduleOnce((1 + i) * delay) { op(a) }: Unit
+      } catch {
         case e: java.lang.IllegalStateException =>
         // the actor system is being stopped, can't schedule
       }
     }
   }
 
-  def message(freq: FiniteDuration)(to: => (ActorRef, Any)) {
-    enabled ! scheduler.schedule(freq, randomize(freq), to._1, to._2)
+  def message(freq: FiniteDuration)(to: => (ActorRef, Any)): Unit = {
+    if (enabled) scheduler.schedule(freq, randomize(freq), to._1, to._2)
   }
 
-  def messageToSelection(freq: FiniteDuration)(to: => (ActorSelection, Any)) {
-    enabled ! scheduler.schedule(freq, randomize(freq)) {
+  def messageToSelection(freq: FiniteDuration)(to: => (ActorSelection, Any)): Unit = {
+    if (enabled) scheduler.schedule(freq, randomize(freq)) {
       to._1 ! to._2
     }
   }
 
-  def effect(freq: FiniteDuration, name: String)(op: => Unit) {
-    enabled ! future(freq, name)(fuccess(op))
+  def effect(freq: FiniteDuration, name: String)(op: => Unit): Unit = {
+    if (enabled) future(freq, name)(fuccess(op))
   }
 
-  def future(freq: FiniteDuration, name: String)(op: => Funit) {
-    enabled ! {
+  def future(freq: FiniteDuration, name: String)(op: => Funit): Unit = {
+    if (enabled) {
       val f = randomize(freq)
       val doDebug = debug && freq > 5.seconds
       logger.info("schedule %s every %s".format(name, freq))
       scheduler.schedule(f, f) {
         val tagged = "(%s) %s".format(nextString(3), name)
-        doDebug ! logger.info(tagged)
+        if (doDebug) logger.info(tagged)
         val start = nowMillis
         op effectFold (
           e => logger.error("(%s) %s".format(tagged, e.getMessage), e),
-          _ => doDebug ! logger.info(tagged + " - %d ms".format(nowMillis - start))
+          _ => if (doDebug) logger.info(tagged + " - %d ms".format(nowMillis - start))
         )
       }
     }
   }
 
-  def once(delay: FiniteDuration)(op: => Unit) {
-    enabled ! scheduler.scheduleOnce(delay)(op)
+  def once(delay: FiniteDuration)(op: => Unit): Unit = {
+    if (enabled) scheduler.scheduleOnce(delay)(op)
   }
 
   def after[A](delay: FiniteDuration)(op: => A) =

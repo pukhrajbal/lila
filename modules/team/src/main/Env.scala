@@ -1,14 +1,18 @@
 package lila.team
 
+import akka.actor._
 import com.typesafe.config.Config
 
+import lila.common.MaxPerPage
+import lila.mod.ModlogApi
 import lila.notify.NotifyApi
 
 final class Env(
     config: Config,
     hub: lila.hub.Env,
+    modLog: ModlogApi,
     notifyApi: NotifyApi,
-    system: akka.actor.ActorSystem,
+    system: ActorSystem,
     asyncCache: lila.memo.AsyncCache.Builder,
     db: lila.db.Env
 ) {
@@ -30,21 +34,22 @@ final class Env(
 
   lazy val forms = new DataForm(colls.team, hub.actor.captcher)
 
-  lazy val pager = new MemberPager(colls.member)
+  lazy val memberStream = new TeamMemberStream(colls.member)(system)
 
   lazy val api = new TeamApi(
     coll = colls,
     cached = cached,
     notifier = notifier,
-    forum = hub.actor.forum,
+    bus = system.lilaBus,
     indexer = hub.actor.teamSearch,
-    timeline = hub.actor.timeline
+    timeline = hub.actor.timeline,
+    modLog = modLog
   )
 
   lazy val paginator = new PaginatorBuilder(
     coll = colls,
-    maxPerPage = PaginatorMaxPerPage,
-    maxUserPerPage = PaginatorMaxUserPerPage
+    maxPerPage = MaxPerPage(PaginatorMaxPerPage),
+    maxUserPerPage = MaxPerPage(PaginatorMaxUserPerPage)
   )
 
   lazy val cli = new Cli(api, colls)
@@ -52,6 +57,10 @@ final class Env(
   lazy val cached = new Cached(asyncCache)(system)
 
   private lazy val notifier = new Notifier(notifyApi = notifyApi)
+
+  system.lilaBus.subscribeFun('shadowban) {
+    case lila.hub.actorApi.mod.Shadowban(userId, true) => api deleteRequestsByUserId userId
+  }
 }
 
 object Env {
@@ -59,6 +68,7 @@ object Env {
   lazy val current = "team" boot new Env(
     config = lila.common.PlayApp loadConfig "team",
     hub = lila.hub.Env.current,
+    modLog = lila.mod.Env.current.logApi,
     notifyApi = lila.notify.Env.current.api,
     system = lila.common.PlayApp.system,
     asyncCache = lila.memo.Env.current.asyncCache,

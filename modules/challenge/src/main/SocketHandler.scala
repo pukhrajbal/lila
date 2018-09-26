@@ -3,11 +3,10 @@ package lila.challenge
 import akka.actor._
 import akka.pattern.ask
 
-import lila.common.PimpedJson._
 import lila.hub.actorApi.map._
 import lila.socket.actorApi.{ Connected => _, _ }
 import lila.socket.Handler
-import lila.socket.Socket.Uid
+import lila.socket.Socket.{ Uid, SocketVersion }
 import lila.user.User
 import makeTimeout.short
 
@@ -21,10 +20,11 @@ private[challenge] final class SocketHandler(
     challengeId: Challenge.ID,
     uid: Uid,
     userId: Option[User.ID],
-    owner: Boolean
+    owner: Boolean,
+    version: Option[SocketVersion]
   ): Fu[Option[JsSocketHandler]] = for {
     socket ← socketHub ? Get(challengeId) mapTo manifest[ActorRef]
-    join = Socket.Join(uid, userId = userId, owner = owner)
+    join = Socket.Join(uid, userId, owner, version)
     handler ← Handler(hub, socket, uid, join) {
       case Socket.Connected(enum, member) =>
         (controller(socket, challengeId, uid, member), enum, member)
@@ -37,9 +37,7 @@ private[challenge] final class SocketHandler(
     uid: Uid,
     member: Socket.Member
   ): Handler.Controller = {
-    case ("p", o) => o int "v" foreach { v =>
-      socket ! PingVersion(uid.value, v)
-    }
+    case ("p", o) => socket ! Ping(uid, o)
     case ("ping", _) if member.owner => pingChallenge(challengeId)
   }
 }

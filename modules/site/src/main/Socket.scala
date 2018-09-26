@@ -14,25 +14,36 @@ private[site] final class Socket(timeout: Duration) extends SocketActor[Member](
 
   override val startsOnApplicationBoot = true
 
+  type UID = String
+  type Flag = String
+
+  val flags = new lila.socket.MemberGroup[Member](_.flag)
+
   def receiveSpecific = {
 
-    case Join(uid, userId, tags) => {
+    case Join(uid, userId, flag) => {
       val (enumerator, channel) = Concurrent.broadcast[JsValue]
-      val member = Member(channel, userId, tags)
-      addMember(uid.value, member)
+      val member = Member(channel, userId, flag)
+      addMember(uid, member)
+      flags.add(uid, member)
       sender ! Connected(enumerator, member)
     }
 
-    case SendToFlag(flag, message) =>
-      members.foreachValue { m =>
-        if (m hasFlag flag) m.channel push message
+    case SendToFlag(flag, msg) =>
+      flags get flag foreach {
+        _.foreachValue(_ push msg)
       }
   }
 
   // don't eject non-pinging API socket clients
-  override def broom {
+  override def broom: Unit = {
     members foreach {
-      case (uid, member) => if (!aliveUids.get(uid) && !member.isApi) eject(uid)
+      case (uid, member) => if (!aliveUids.get(uid) && !member.isApi) ejectUidString(uid)
     }
+  }
+
+  override def quit(uid: Socket.Uid): Unit = {
+    members get uid.value foreach { flags.remove(uid, _) }
+    super.quit(uid)
   }
 }

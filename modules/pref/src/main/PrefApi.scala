@@ -1,11 +1,12 @@
 package lila.pref
 
+import play.api.mvc.RequestHeader
+import reactivemongo.bson._
 import scala.concurrent.duration.FiniteDuration
 
 import lila.db.BSON
 import lila.db.dsl._
 import lila.user.User
-import reactivemongo.bson._
 
 final class PrefApi(
     coll: Coll,
@@ -60,6 +61,7 @@ final class PrefApi(
       confirmResign = r.getD("confirmResign", Pref.default.confirmResign),
       insightShare = r.getD("insightShare", Pref.default.insightShare),
       keyboardMove = r.getD("keyboardMove", Pref.default.keyboardMove),
+      zen = r.getD("zen", Pref.default.zen),
       rookCastle = r.getD("rookCastle", Pref.default.rookCastle),
       pieceNotation = r.getD("pieceNotation", Pref.default.pieceNotation),
       moveEvent = r.getD("moveEvent", Pref.default.moveEvent),
@@ -76,7 +78,7 @@ final class PrefApi(
       "pieceSet" -> o.pieceSet,
       "theme3d" -> o.theme3d,
       "pieceSet3d" -> o.pieceSet3d,
-      "soundSet" -> o.soundSet,
+      "soundSet" -> SoundSet.name2key(o.soundSet),
       "blindfold" -> o.blindfold,
       "autoQueen" -> o.autoQueen,
       "autoThreefold" -> o.autoThreefold,
@@ -100,6 +102,7 @@ final class PrefApi(
       "confirmResign" -> o.confirmResign,
       "insightShare" -> o.insightShare,
       "keyboardMove" -> o.keyboardMove,
+      "zen" -> o.zen,
       "rookCastle" -> o.rookCastle,
       "moveEvent" -> o.moveEvent,
       "pieceNotation" -> o.pieceNotation,
@@ -121,6 +124,9 @@ final class PrefApi(
 
   def getPref[A](user: User, pref: Pref => A): Fu[A] = getPref(user) map pref
   def getPref[A](userId: String, pref: Pref => A): Fu[A] = getPref(userId) map pref
+
+  def getPref(user: User, req: RequestHeader): Fu[Pref] =
+    getPref(user) map RequestPref.queryParamOverride(req)
 
   def followable(userId: String): Fu[Boolean] =
     coll.find($id(userId), $doc("follow" -> true)).uno[Bdoc] map {

@@ -8,19 +8,22 @@ import scala.concurrent.duration._
 
 import lila.db.dsl._
 import lila.game.{ Query, Game, GameRepo }
-import lila.hub.actorApi.map.Tell
-import lila.round.actorApi.round.{ Outoftime, Abandon }
+import lila.hub.DuctMap
+import lila.round.actorApi.round.{ QuietFlag, Abandon }
 
+/*
+ * Cleans up unfinished games
+ * and flagged games when no one is around
+ */
 private[round] final class Titivate(
-    roundMap: ActorRef,
+    roundMap: DuctMap[Round],
     bookmark: ActorSelection,
     chat: ActorSelection
 ) extends Actor {
 
-  object Schedule
   object Run
 
-  override def preStart() {
+  override def preStart(): Unit = {
     scheduleNext
     context setReceiveTimeout 30.seconds
   }
@@ -46,21 +49,19 @@ private[round] final class Titivate(
             if (game.finished || game.isPgnImport || game.playedThenAborted)
               GameRepo unsetCheckAt game
 
-            else if (game.outoftime(_ => chess.Clock.maxGrace)) fuccess {
-              roundMap ! Tell(game.id, Outoftime)
+            else if (game.outoftime(withGrace = true)) fuccess {
+              roundMap.tell(game.id, QuietFlag)
             }
 
             else if (game.abandoned) fuccess {
-              roundMap ! Tell(game.id, Abandon)
+              roundMap.tell(game.id, Abandon)
             }
 
             else if (game.unplayed) {
               bookmark ! lila.hub.actorApi.bookmark.Remove(game.id)
-              chat ! lila.chat.actorApi.Remove(game.id)
+              chat ! lila.chat.actorApi.Remove(lila.chat.Chat.Id(game.id))
               GameRepo remove game.id
-            }
-
-            else game.clock match {
+            } else game.clock match {
 
               case Some(clock) if clock.isRunning =>
                 val minutes = clock.estimateTotalSeconds / 60
@@ -79,7 +80,7 @@ private[round] final class Titivate(
             }
           } inject (count + 1)
         })
-        .chronometer.mon(_.round.titivate.time).result
+        .mon(_.round.titivate.time)
         .addEffect { count =>
           lila.mon.round.titivate.game(count)
           lila.mon.round.titivate.total(total)

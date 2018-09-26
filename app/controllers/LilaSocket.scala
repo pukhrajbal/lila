@@ -7,6 +7,7 @@ import play.api.mvc.WebSocket.FrameFormatter
 import lila.api.Context
 import lila.app._
 import lila.common.{ HTTPRequest, IpAddress }
+import lila.socket.Socket.SocketVersion
 
 trait LilaSocket { self: LilaController =>
 
@@ -14,7 +15,9 @@ trait LilaSocket { self: LilaController =>
 
   private val notFoundResponse = NotFound(jsonError("socket resource not found"))
 
-  protected def SocketEither[A: FrameFormatter](f: Context => Fu[Either[Result, Pipe[A]]]) =
+  protected def getSocketVersion(implicit ctx: Context) = getInt("v") map SocketVersion.apply
+
+  protected def SocketEither[A: FrameFormatter](f: Context => Fu[Either[Result, Pipe[A]]]): WebSocket[A, A] =
     WebSocket.tryAccept[A] { req =>
       SocketCSRF(req) {
         reqToCtx(req) flatMap f
@@ -52,7 +55,7 @@ trait LilaSocket { self: LilaController =>
           }
           f(ctx).map { resultOrSocket =>
             resultOrSocket.right.map {
-              case (readIn, writeOut) => (e, i) => {
+              case (readIn, writeOut) => (e: Enumerator[A], i: Iteratee[A, Unit]) => {
                 writeOut |>> i
                 e &> Enumeratee.mapInput { in =>
                   if (limiter(ip, 1)(true)) in
@@ -61,6 +64,7 @@ trait LilaSocket { self: LilaController =>
                     Input.EOF
                   }
                 } |>> readIn
+                ()
               }
             }
           }

@@ -64,7 +64,7 @@ final class Syncache[K, V](
     else chm.computeIfAbsent(k, loadFunction)
   }
 
-  // maybe optimize later with cach batching
+  // maybe optimize later with cache batching
   def asyncMany(ks: List[K]): Fu[List[V]] = ks.map(async).sequenceFu
 
   def invalidate(k: K): Unit = cache invalidate k
@@ -74,8 +74,7 @@ final class Syncache[K, V](
       // println(s"*** preload $name $k")
       incPreload()
       chm.computeIfAbsent(k, loadFunction).void
-    }
-    else funit
+    } else funit
 
   // maybe optimize later with cach batching
   def preloadMany(ks: Seq[K]): Funit = ks.distinct.map(preloadOne).sequenceFu.void
@@ -90,9 +89,9 @@ final class Syncache[K, V](
   private val loadFunction = new java.util.function.Function[K, Fu[V]] {
     def apply(k: K) = compute(k).withTimeout(
       duration = resultTimeout,
-      error = lila.common.LilaException(s"Syncache $name $k timed out after $resultTimeout")
+      error = lila.base.LilaException(s"Syncache $name $k timed out after $resultTimeout")
     )
-      .chronometer.mon(_ => recComputeNanos).result // monitoring: record async time
+      .mon(_ => recComputeNanos) // monitoring: record async time
       .addEffects(
         err => {
           logger.branch(name).warn(s"$err key=$k")
@@ -110,8 +109,7 @@ final class Syncache[K, V](
     try {
       // monitoring: increment lock time
       lila.mon.measureIncMicros(_ => incWaitMicros)(fu await duration)
-    }
-    catch {
+    } catch {
       case e: java.util.concurrent.TimeoutException =>
         incTimeout()
         default(k)
@@ -131,7 +129,7 @@ object Syncache {
   sealed trait Strategy
   case object NeverWait extends Strategy
   case class AlwaysWait(duration: FiniteDuration) extends Strategy
-  case class WaitAfterUptime(duration: FiniteDuration, uptimeSeconds: Int = 12) extends Strategy
+  case class WaitAfterUptime(duration: FiniteDuration, uptimeSeconds: Int = 20) extends Strategy
 
   sealed trait ExpireAfter
   case class ExpireAfterAccess(duration: FiniteDuration) extends ExpireAfter

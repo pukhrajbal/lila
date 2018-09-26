@@ -7,7 +7,6 @@ import play.api.libs.json._
 import play.api.libs.json.JsObject
 import scalaz.Validation.FlatMap._
 
-import lila.common.PimpedJson._
 import lila.tree.Branch
 
 case class AnaDrop(
@@ -16,9 +15,8 @@ case class AnaDrop(
     variant: Variant,
     fen: String,
     path: String,
-    chapterId: Option[String],
-    unsync: Boolean
-) {
+    chapterId: Option[String]
+) extends AnaAny {
 
   def branch: Valid[Branch] =
     chess.Game(variant.some, fen.some).drop(role, pos) flatMap {
@@ -36,7 +34,7 @@ case class AnaDrop(
           opening = Variant.openingSensibleVariants(variant) ?? {
             FullOpeningDB findByFen fen
           },
-          drops = movable.fold(game.situation.drops, Some(Nil)),
+          drops = if (movable) game.situation.drops else Some(Nil),
           crazyData = game.situation.board.crazyData
         )
       }
@@ -57,14 +55,12 @@ object AnaDrop {
     variant = chess.variant.Variant orDefault ~d.str("variant")
     fen ← d str "fen"
     path ← d str "path"
-    chapterId = d str "ch"
   } yield AnaDrop(
     role = role,
     pos = pos,
     variant = variant,
     fen = fen,
     path = path,
-    chapterId = d str "ch",
-    unsync = ~(d boolean "unsync")
+    chapterId = d str "ch"
   )
 }

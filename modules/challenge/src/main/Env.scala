@@ -5,9 +5,9 @@ import akka.pattern.ask
 import com.typesafe.config.Config
 import scala.concurrent.duration._
 
-import lila.common.PimpedConfig._
+import lila.user.User
 import lila.hub.actorApi.map.Ask
-import lila.socket.actorApi.GetVersion
+import lila.socket.Socket.{ GetVersion, SocketVersion }
 import makeTimeout.short
 
 final class Env(
@@ -20,6 +20,8 @@ final class Env(
     hub: lila.hub.Env,
     db: lila.db.Env,
     asyncCache: lila.memo.AsyncCache.Builder,
+    getPref: User => Fu[lila.pref.Pref],
+    getRelation: (User, User) => Fu[Option[lila.relation.Relation]],
     scheduler: lila.common.Scheduler
 ) {
 
@@ -46,8 +48,8 @@ final class Env(
     }), name = SocketName
   )
 
-  def version(challengeId: Challenge.ID): Fu[Int] =
-    socketHub ? Ask(challengeId, GetVersion) mapTo manifest[Int]
+  def version(challengeId: Challenge.ID): Fu[SocketVersion] =
+    socketHub ? Ask(challengeId, GetVersion) mapTo manifest[SocketVersion]
 
   lazy val socketHandler = new SocketHandler(
     hub = hub,
@@ -65,6 +67,11 @@ final class Env(
     userRegister = hub.actor.userRegister,
     asyncCache = asyncCache,
     lilaBus = system.lilaBus
+  )
+
+  lazy val granter = new ChallengeGranter(
+    getPref = getPref,
+    getRelation = getRelation
   )
 
   private lazy val repo = new ChallengeRepo(
@@ -91,6 +98,8 @@ object Env {
     isOnline = lila.user.Env.current.isOnline,
     db = lila.db.Env.current,
     asyncCache = lila.memo.Env.current.asyncCache,
+    getPref = lila.pref.Env.current.api.getPref,
+    getRelation = lila.relation.Env.current.api.fetchRelation,
     scheduler = lila.common.PlayApp.scheduler
   )
 }

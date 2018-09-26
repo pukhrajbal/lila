@@ -1,26 +1,22 @@
 package lila.tournament
 
-import chess.variant.Variant
 import chess.Clock.{ Config => ClockConfig }
+import chess.variant.Variant
 import chess.{ Mode, StartingPosition }
 import lila.db.BSON
 import lila.db.dsl._
 import lila.rating.PerfType
+import lila.user.User.lichessId
 import reactivemongo.bson._
 
 object BSONHandlers {
 
-  private implicit val startingPositionBSONHandler = new BSONHandler[BSONString, StartingPosition] {
-    def read(bsonStr: BSONString): StartingPosition = StartingPosition.byEco(bsonStr.value) err s"No such starting position: ${bsonStr.value}"
-    def write(x: StartingPosition) = BSONString(x.eco)
-  }
-
-  private implicit val statusBSONHandler = new BSONHandler[BSONInteger, Status] {
+  private[tournament] implicit val statusBSONHandler: BSONHandler[BSONInteger, Status] = new BSONHandler[BSONInteger, Status] {
     def read(bsonInt: BSONInteger): Status = Status(bsonInt.value) err s"No such status: ${bsonInt.value}"
     def write(x: Status) = BSONInteger(x.id)
   }
 
-  private implicit val scheduleFreqHandler = new BSONHandler[BSONString, Schedule.Freq] {
+  private[tournament] implicit val scheduleFreqHandler = new BSONHandler[BSONString, Schedule.Freq] {
     def read(bsonStr: BSONString) = Schedule.Freq(bsonStr.value) err s"No such freq: ${bsonStr.value}"
     def write(x: Schedule.Freq) = BSONString(x.name)
   }
@@ -53,7 +49,9 @@ object BSONHandlers {
   implicit val tournamentHandler = new BSON[Tournament] {
     def reads(r: BSON.Reader) = {
       val variant = r.intO("variant").fold[Variant](Variant.default)(Variant.orDefault)
-      val position = r.strO("eco").flatMap(StartingPosition.byEco) | StartingPosition.initial
+      val position: StartingPosition = r.strO("fen").flatMap(Thematic.byFen) orElse
+        r.strO("eco").flatMap(Thematic.byEco) getOrElse // for BC
+        StartingPosition.initial
       val startsAt = r date "startsAt"
       val conditions = r.getO[Condition.All]("conditions") getOrElse Condition.All.empty
       Tournament(
@@ -69,6 +67,7 @@ object BSONHandlers {
         `private` = r boolD "private",
         password = r.strO("password"),
         conditions = conditions,
+        noBerserk = r boolD "noBerserk",
         schedule = for {
           doc <- r.getO[Bdoc]("schedule")
           freq <- doc.getAs[Schedule.Freq]("freq")
@@ -76,7 +75,7 @@ object BSONHandlers {
         } yield Schedule(freq, speed, variant, position, startsAt, conditions),
         nbPlayers = r int "nbPlayers",
         createdAt = r date "createdAt",
-        createdBy = r str "createdBy",
+        createdBy = r strO "createdBy" getOrElse lichessId,
         startsAt = startsAt,
         winnerId = r strO "winner",
         featuredId = r strO "featured",
@@ -91,11 +90,12 @@ object BSONHandlers {
       "clock" -> o.clock,
       "minutes" -> o.minutes,
       "variant" -> o.variant.some.filterNot(_.standard).map(_.id),
-      "eco" -> o.position.some.filterNot(_.initial).map(_.eco),
+      "fen" -> o.position.some.filterNot(_.initial).map(_.fen),
       "mode" -> o.mode.some.filterNot(_.rated).map(_.id),
       "private" -> w.boolO(o.`private`),
       "password" -> o.password,
       "conditions" -> o.conditions.ifNonEmpty,
+      "noBerserk" -> w.boolO(o.noBerserk),
       "schedule" -> o.schedule.map { s =>
         $doc(
           "freq" -> s.freq,
@@ -104,7 +104,7 @@ object BSONHandlers {
       },
       "nbPlayers" -> o.nbPlayers,
       "createdAt" -> w.date(o.createdAt),
-      "createdBy" -> w.str(o.createdBy),
+      "createdBy" -> o.nonLichessCreatedBy,
       "startsAt" -> w.date(o.startsAt),
       "winner" -> o.winnerId,
       "featured" -> o.featuredId,
@@ -121,10 +121,8 @@ object BSONHandlers {
       provisional = r boolD "pr",
       withdraw = r boolD "w",
       score = r intD "s",
-      ratingDiff = r intD "p",
-      magicScore = r int "m",
       fire = r boolD "f",
-      performance = r intO "e"
+      performance = r intD "e"
     )
     def writes(w: BSON.Writer, o: Player) = $doc(
       "_id" -> o._id,
@@ -134,7 +132,6 @@ object BSONHandlers {
       "pr" -> w.boolO(o.provisional),
       "w" -> w.boolO(o.withdraw),
       "s" -> w.intO(o.score),
-      "p" -> w.intO(o.ratingDiff),
       "m" -> o.magicScore,
       "f" -> w.boolO(o.fire),
       "e" -> o.performance
@@ -152,7 +149,10 @@ object BSONHandlers {
         status = chess.Status(r int "s") err "tournament pairing status",
         user1 = user1,
         user2 = user2,
-        winner = r boolO "w" map (_.fold(user1, user2)),
+        winner = r boolO "w" map {
+          case true => user1
+          case _ => user2
+        },
         turns = r intO "t",
         berserk1 = r.intO("b1").fold(r.boolD("b1"))(1 ==), // it used to be int = 0/1
         berserk2 = r.intO("b2").fold(r.boolD("b2"))(1 ==)

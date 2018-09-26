@@ -11,9 +11,9 @@ case class Thread(
     createdAt: DateTime,
     updatedAt: DateTime,
     posts: List[Post],
-    creatorId: String,
-    invitedId: String,
-    visibleByUserIds: List[String],
+    creatorId: User.ID,
+    invitedId: User.ID,
+    visibleByUserIds: List[User.ID],
     mod: Option[Boolean]
 ) {
 
@@ -39,6 +39,10 @@ case class Thread(
 
   def nbPosts = posts.size
 
+  def isTooBig = nbPosts > 200
+
+  def firstPost: Option[Post] = posts.headOption
+
   def firstPostUnreadBy(user: User): Option[Post] = posts find isPostUnreadBy(user)
 
   def unreadIndexesBy(user: User): List[Int] = posts.zipWithIndex collect {
@@ -53,18 +57,20 @@ case class Thread(
 
   def hasUser(user: User) = userIds contains user.id
 
-  def otherUserId(user: User) = isCreator(user).fold(invitedId, creatorId)
+  def otherUserId(user: User) = if (isCreator(user)) invitedId else creatorId
 
   def visibleOtherUserId(user: User) =
-    isCreator(user).fold(invitedId, asMod.fold(Thread.lichess, creatorId))
+    if (isCreator(user)) invitedId
+    else if (asMod) Thread.lichess
+    else creatorId
 
-  def senderOf(post: Post) = post.isByCreator.fold(creatorId, invitedId)
+  def senderOf(post: Post) = if (post.isByCreator) creatorId else invitedId
 
   def visibleSenderOf(post: Post) =
     if (post.isByCreator && asMod) Thread.lichess
     else senderOf(post)
 
-  def receiverOf(post: Post) = post.isByCreator.fold(invitedId, creatorId)
+  def receiverOf(post: Post) = if (post.isByCreator) invitedId else creatorId
 
   def visibleReceiverOf(post: Post) =
     if (!post.isByCreator && asMod) Thread.lichess
@@ -80,9 +86,19 @@ case class Thread(
 
   def isVisibleBy(userId: User.ID) = visibleByUserIds contains userId
 
-  def hasPostsWrittenBy(userId: String) = posts exists (_.isByCreator == (creatorId == userId))
+  def isVisibleByOther(user: User) = isVisibleBy(otherUserId(user))
+
+  def hasPostsWrittenBy(userId: User.ID) = posts exists (_.isByCreator == (creatorId == userId))
 
   def endsWith(post: Post) = posts.lastOption ?? post.similar
+
+  def erase(user: User) = copy(
+    posts = posts.map {
+      case p if p.isByCreator && user.id == creatorId => p.erase
+      case p if !p.isByCreator && user.id == invitedId => p.erase
+      case p => p
+    }
+  )
 }
 
 object Thread {

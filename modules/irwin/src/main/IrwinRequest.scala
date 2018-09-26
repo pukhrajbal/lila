@@ -1,22 +1,15 @@
 package lila.irwin
 
-import org.joda.time.DateTime
-
+import lila.report.Suspect
 import lila.user.User
+import lila.game.Game
+import lila.analyse.Analysis
 
 case class IrwinRequest(
-    _id: User.ID,
+    suspect: Suspect,
     origin: IrwinRequest.Origin,
-    priority: DateTime, // older = more prioritary; affected by origin
-    createdAt: DateTime,
-    startedAt: Option[DateTime],
-    notifyUserId: Option[User.ID]
-) {
-
-  def id = _id
-
-  def isInProgress = startedAt.isDefined
-}
+    games: List[(Game, Option[Analysis])]
+)
 
 object IrwinRequest {
 
@@ -26,24 +19,7 @@ object IrwinRequest {
 
   object Origin {
     case object Moderator extends Origin
-    case object Report extends Origin
     case object Tournament extends Origin
     case object Leaderboard extends Origin
-  }
-
-  def make(userId: User.ID, origin: Origin, notifyUserId: Option[User.ID]) = IrwinRequest(
-    _id = userId,
-    origin = origin,
-    priority = DateTime.now minusHours originPriorityDays(origin),
-    createdAt = DateTime.now,
-    startedAt = none,
-    notifyUserId = notifyUserId
-  )
-
-  private def originPriorityDays(origin: Origin) = origin match {
-    case Origin.Moderator => 100
-    case Origin.Report => 20
-    case Origin.Tournament => -1000
-    case Origin.Leaderboard => -3000
   }
 }

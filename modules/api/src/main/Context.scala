@@ -1,46 +1,49 @@
 package lila.api
 
 import play.api.mvc.RequestHeader
+import play.api.i18n.Lang
 
-import lila.common.{ HTTPRequest, AssetVersion }
+import lila.common.{ HTTPRequest, Nonce }
 import lila.pref.Pref
 import lila.relation.actorApi.OnlineFriends
 import lila.user.{ UserContext, HeaderUserContext, BodyUserContext }
 
 case class PageData(
-  onlineFriends: OnlineFriends,
-  teamNbRequests: Int,
-  nbChallenges: Int,
-  nbNotifications: Int,
-  pref: Pref,
-  blindMode: Boolean,
-  hasFingerprint: Boolean,
-  assetVersion: AssetVersion,
-  inquiry: Option[lila.mod.Inquiry]
+    onlineFriends: OnlineFriends,
+    teamNbRequests: Int,
+    nbChallenges: Int,
+    nbNotifications: Int,
+    pref: Pref,
+    blindMode: Boolean,
+    hasFingerprint: Boolean,
+    inquiry: Option[lila.mod.Inquiry],
+    nonce: Option[Nonce],
+    error: Boolean = false
 )
 
 object PageData {
 
-  def empty(v: AssetVersion) =
-    PageData(OnlineFriends.empty, 0, 0, 0, Pref.default, false, false, v, none)
-
-  def anon(req: RequestHeader, v: AssetVersion, blindMode: Boolean = false) = PageData(
+  def anon(req: RequestHeader, nonce: Option[Nonce], blindMode: Boolean = false) = PageData(
     OnlineFriends.empty,
     teamNbRequests = 0,
     nbChallenges = 0,
     nbNotifications = 0,
-    Pref fromRequest req,
+    lila.pref.RequestPref fromRequest req,
     blindMode = blindMode,
     hasFingerprint = false,
-    assetVersion = v,
-    none
+    inquiry = none,
+    nonce = nonce
   )
+
+  def error(req: RequestHeader, nonce: Option[Nonce]) = anon(req, nonce).copy(error = true)
 }
 
 sealed trait Context extends lila.user.UserContextWrapper {
 
   val userContext: UserContext
   val pageData: PageData
+
+  def lang = userContext.lang
 
   def onlineFriends = pageData.onlineFriends
 
@@ -49,6 +52,7 @@ sealed trait Context extends lila.user.UserContextWrapper {
   def nbNotifications = pageData.nbNotifications
   def pref = pageData.pref
   def blindMode = pageData.blindMode
+  def nonce = pageData.nonce
 
   def currentTheme = lila.pref.Theme(pref.theme)
 
@@ -76,8 +80,8 @@ sealed trait Context extends lila.user.UserContextWrapper {
 }
 
 sealed abstract class BaseContext(
-  val userContext: lila.user.UserContext,
-  val pageData: PageData
+    val userContext: lila.user.UserContext,
+    val pageData: PageData
 ) extends Context
 
 final class BodyContext[A](
@@ -89,14 +93,14 @@ final class BodyContext[A](
 }
 
 final class HeaderContext(
-  headerContext: HeaderUserContext,
-  data: PageData
+    headerContext: HeaderUserContext,
+    data: PageData
 ) extends BaseContext(headerContext, data)
 
 object Context {
 
-  def apply(req: RequestHeader, v: AssetVersion): HeaderContext =
-    new HeaderContext(UserContext(req, none), PageData.anon(req, v))
+  def error(req: RequestHeader, lang: Lang, nonce: Option[Nonce]): HeaderContext =
+    new HeaderContext(UserContext(req, none, none, lang), PageData.error(req, nonce))
 
   def apply(userContext: HeaderUserContext, pageData: PageData): HeaderContext =
     new HeaderContext(userContext, pageData)

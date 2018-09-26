@@ -59,7 +59,6 @@
 .user_show .fire_trophy.marathonTopFifty,
 .user_show .fire_trophy.marathonTopHundred {
   filter: hue-rotate(190deg);
-  -webkit-filter: hue-rotate(190deg);
 }
 .user_show .fire_trophy.marathonTopTen {
   font-size: 58px;
@@ -84,19 +83,6 @@
 }
 .user_show .fire_trophy.bongcloudWarrior {
   filter: hue-rotate(70deg);
-  -webkit-filter: hue-rotate(70deg);
-}
-.user_show .trophy.zugMiracle {
-  height: 80px;
-  margin: 0 8px!important;
-  transition: 2s;
-}
-@keyframes psyche {
-  100% { filter: hue-rotate(360deg); }
-}
-.user_show .trophy.zugMiracle:hover {
-  transform: translateY(-9px);
-  animation: psyche 0.3s ease-in-out infinite alternate;
 }
 .user_show .packed .trophy {
   margin-right: -8px;
@@ -120,6 +106,10 @@
 .user_show .trophy.icon3d:not(.patron):hover {
   transform: translateY(-3px);
 }
+.user_show .trophy.streaming {
+  color: #d59120!important;
+  animation: fire 1.25s ease-in-out infinite alternate;
+}
 .user_show .trophy.patron {
   font-size: 60px;
   margin: -30px 10px 0 25px!important;
@@ -141,6 +131,29 @@
 .user_show .trophy.patron.hint--left:hover:after {
   transform: scale(-1, 1), translateX(8px);
 }
+.user_show .combo_trophy {
+  width: 60px;
+  height: 60px;
+  background-size: contain;
+  font-family: "lichess" !important;
+  text-align: center;
+}
+.user_show .shield_trophy {
+  width: 50px;
+  background-image: url(../images/trophy/shield-gold.png);
+  font-size: 30px;
+  line-height: 60px;
+  color: #333!important;
+  text-shadow: 0 0 6px #fff;
+}
+.user_show .revol_trophy {
+  background-image: url(../images/trophy/round-star.png);
+  font-size: 24px;
+  line-height: 68px;
+  color: #fff!important;
+  text-shadow: 0 0 4px #444;
+}
+
 .user_show .honorific {
   display: inline-block;
   margin-top: 1em;
@@ -148,16 +161,18 @@
   font-size: 1.4em;
 }
 .user_show .social {
-  position: relative;
   border-top: 0;
   padding: 0 0 5px 10px;
   height: 52px;
+  align-items: center;
+  justify-content: space-between;
+}
+.user_show .social .links {
+  display: flex;
 }
 .user_show .user_actions {
-  position: absolute;
-  top: 12px;
-  right: 12px;
   font-size: 1.2em;
+  margin: 4px 15px 0 0;
 }
 .user_show .user_actions form {
   display: inline;
@@ -209,7 +224,6 @@ div.sub_ratings > a.game.active {
 }
 div.sub_ratings > a > span {
   display: block;
-  text-transform: lowercase;
 }
 div.sub_ratings > a > i {
   position: absolute;
@@ -312,22 +326,31 @@ div.sub_ratings h3 {
 .user_show .bio,
 .user_show .stats,
 .user_show .tournament_points,
+.user_show .social_links,
 .user_show .teams {
   display: block;
   margin-top: 16px;
 }
+.user_show .col2 {
+  display: flex;
+  flex-flow: row wrap;
+  line-height: 1.7em;
+}
+.user_show .col2 > a {
+  flex: 0 0 50%;
+  color: #3893E8!important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.user_show .teams {
+  margin-bottom: 10px;
+}
 .user_show .bio {
   font-style: italic;
 }
-.user_show .teams a {
-  display: block;
-  margin: 5px 0;
-}
-.user_show .teams a.mine {
-  color: #d59120;
-}
 .user_show div.games {
-  margin-top: 10px;
+  padding-top: 10px;
 }
 .user_show div.games.center {
   text-align: center;
@@ -375,7 +398,9 @@ div.sub_ratings h3 {
 }
 .user_show .note_zone p.text {
   min-height: 2.7em;
-  word-break: break-all;
+}
+.user_show .note_zone p.text a {
+  color: #3893E8;
 }
 .user_show div.content_box_inter.tabs {
   margin-left: -8px;
@@ -385,6 +410,9 @@ div.sub_ratings h3 {
 }
 .mod_zone {
   display: none;
+}
+.mod_zone .spinner {
+  margin: 100px auto;
 }
 div.crosstable {
   margin: 25px 10px 15px 10px;
@@ -452,4 +480,75 @@ div.crosstable {
 }
 .user_show .new_player a {
   color: #3893E8;
+}
+div.content_box_inter {
+  display: flex!important;
+}
+div.content_box_inter .intertab {
+  flex: 1 1 auto;
+  text-align: center;
+  line-height: 1.4em;
+  margin-top: 5px;
+  padding: 0.5em 5px;
+  text-transform: capitalize;
+  border: 1px solid transparent;
+  font-family: 'Roboto';
+  font-weight: 300;
+  white-space: normal;
+}
+div.content_box_inter.tabs .intertab {
+  margin-top: 7px;
+  border-bottom: none;
+  padding-bottom: 0.8em;
+}
+div.content_box_inter .intertab:hover {
+  background: #efefef;
+}
+div.content_box_inter.angles .intertab:hover {
+  background: #f9f9f9;
+}
+div.content_box_inter .intertab strong {
+  font-family: 'Noto Sans';
+  font-weight: normal;
+  font-size: 1.1em;
+}
+div.content_box_inter a.intertab.active {
+  margin-bottom: -1px;
+  background: #fff!important;
+}
+div#games.content_box_inter {
+  border-top: none;
+}
+div.content_box_inter a.to_games.active,
+div#games.content_box_inter {
+  background: #e8e8e8!important;
+}
+div.content_box_inter.angles .intertab {
+  font-size: 1.2em;
+  padding: 0.9em 5px;
+}
+div.content_box_inter .intertab.active {
+  border: 1px solid #ccc;
+  border-bottom: none;
+}
+div.content_box_inter .to_games .unread {
+  opacity: 0.7;
+  padding: 0 5px;
+}
+div.content_box_inter .to_playing {
+  color: #d85000!important;
+}
+div.content_box_inter .to_playing strong {
+  font-weight: bold;
+}
+
+body.dark div.content_box_inter .intertab:hover {
+  background: #2d2d2d;
+}
+body.dark div.content_box_inter a.intertab.active {
+  background: #2b2b2b!important;
+}
+body.dark div.content_box_inter a.to_games.active,
+body.dark div#games.content_box_inter {
+  background: #353535!important;
 }

@@ -9,35 +9,42 @@ import play.api.libs.iteratee._
 import play.api.libs.json._
 
 import actorApi._
+import lila.chat.Chat
 import lila.common.LightUser
 import lila.game.actorApi.{ StartGame, UserStartGame }
-import lila.game.Event
+import lila.game.{ Game, GameRepo, Event }
 import lila.hub.actorApi.Deploy
 import lila.hub.actorApi.game.ChangeFeatured
-import lila.hub.actorApi.round.IsOnGame
+import lila.hub.actorApi.round.{ IsOnGame, TourStanding }
 import lila.hub.actorApi.tv.{ Select => TvSelect }
 import lila.hub.TimeBomb
 import lila.socket._
 import lila.socket.actorApi.{ Connected => _, _ }
+import lila.socket.Socket.Uid
 import makeTimeout.short
 
 private[round] final class Socket(
-    gameId: String,
+    gameId: Game.ID,
     history: History,
     lightUser: LightUser.Getter,
-    uidTimeout: Duration,
-    socketTimeout: Duration,
-    disconnectTimeout: Duration,
-    ragequitTimeout: Duration,
+    uidTimeout: FiniteDuration,
+    socketTimeout: FiniteDuration,
+    disconnectTimeout: FiniteDuration,
+    ragequitTimeout: FiniteDuration,
     simulActor: ActorSelection
 ) extends SocketActor[Member](uidTimeout) {
 
   private var hasAi = false
   private var mightBeSimul = true // until proven false
+  private var chatIds = Socket.ChatIds(
+    priv = Chat.Id(gameId), // until replaced with tourney/simul chat
+    pub = Chat.Id(s"$gameId/w")
+  )
+  private var tournamentId = none[String] // until set, to listen to standings
 
   private val timeBomb = new TimeBomb(socketTimeout)
 
-  private var delayedCrowdNotification = false
+  private[this] var delayedCrowdNotification = false
 
   private final class Player(color: Color) {
 
@@ -45,15 +52,17 @@ private[round] final class Socket(
     private var time: Long = nowMillis
     // wether the player closed the window intentionally
     private var bye: Int = 0
+    // connected as a bot
+    private var botConnected: Boolean = false
 
     var userId = none[String]
 
-    def ping {
+    def ping: Unit = {
       isGone foreach { _ ?? notifyGone(color, false) }
       if (bye > 0) bye = bye - 1
       time = nowMillis
     }
-    def setBye {
+    def setBye: Unit = {
       bye = 3
     }
     private def isBye = bye > 0
@@ -62,32 +71,48 @@ private[round] final class Socket(
       simulActor ? lila.hub.actorApi.simul.GetHostIds mapTo manifest[Set[String]] map (_ contains u)
     }
 
-    def isGone =
-      if (time < (nowMillis - isBye.fold(ragequitTimeout, disconnectTimeout).toMillis))
-        isHostingSimul map (!_)
-      else fuccess(false)
+    def isGone: Fu[Boolean] = {
+      time < (nowMillis - (if (isBye) ragequitTimeout else disconnectTimeout).toMillis) &&
+        !botConnected
+    } ?? !isHostingSimul
+
+    def setBotConnected(v: Boolean) =
+      botConnected = v
+
+    def isBotConnected = botConnected
   }
 
   private val whitePlayer = new Player(White)
   private val blackPlayer = new Player(Black)
 
-  override def preStart() {
+  override def preStart(): Unit = {
     super.preStart()
-    refreshSubscriptions
-    lila.game.GameRepo game gameId map SetGame.apply pipeTo self
+    buscriptions.all
+    GameRepo game gameId map SetGame.apply pipeTo self
   }
 
-  override def postStop() {
+  override def postStop(): Unit = {
     super.postStop()
     lilaBus.unsubscribe(self)
   }
 
-  private def refreshSubscriptions {
-    lilaBus.unsubscribe(self)
-    members.flatMap { case (_, m) => m.userTv }.toList.distinct foreach { userId =>
+  private object buscriptions {
+
+    def all = {
+      tv
+      chat
+      tournament
+    }
+
+    def tv = members.flatMap { case (_, m) => m.userTv }.toSet foreach { (userId: String) =>
       lilaBus.subscribe(self, Symbol(s"userStartGame:$userId"))
     }
-    lilaBus.subscribe(self, Symbol(s"chat-$gameId"), Symbol(s"chat-$gameId/w"))
+
+    def chat = lilaBus.subscribe(self, Symbol(s"chat:${chatIds.priv}"), Symbol(s"chat:${chatIds.pub}"))
+
+    def tournament = tournamentId foreach { id =>
+      lilaBus.subscribe(self, Symbol(s"tour-standing-$id"))
+    }
   }
 
   def receiveSpecific = ({
@@ -97,6 +122,15 @@ private[round] final class Socket(
       whitePlayer.userId = game.player(White).userId
       blackPlayer.userId = game.player(Black).userId
       mightBeSimul = game.isSimul
+      game.tournamentId orElse game.simulId map Chat.Id.apply foreach { chatId =>
+        chatIds = chatIds.copy(priv = chatId)
+        buscriptions.chat
+      }
+      game.tournamentId foreach { tourId =>
+        tournamentId = tourId.some
+        buscriptions.tournament
+      }
+    case SetGame(None) => self ! PoisonPill // should never happen but eh
 
     // from lilaBus 'startGame
     // sets definitive user ids
@@ -107,15 +141,23 @@ private[round] final class Socket(
       onDeploy(d)
       history.enablePersistence
 
-    case PingVersion(uid, v) =>
+    case Ping(uid, vOpt, lagCentis) =>
       timeBomb.delay
-      ping(uid)
+      ping(uid, lagCentis)
       ownerOf(uid) foreach { o =>
         playerDo(o.color, _.ping)
       }
-      withMember(uid) { member =>
-        (history getEventsSince v).fold(resyncNow(member))(batch(member, _))
+
+      // Mobile backwards compat
+      vOpt foreach { v =>
+        withMember(uid) { member =>
+          (history getEventsSince v).fold(resyncNow(member))(batch(member, _))
+        }
       }
+
+    case BotConnected(color, v) =>
+      playerDo(color, _ setBotConnected v)
+      notifyCrowd
 
     case Bye(color) => playerDo(color, _.setBye)
 
@@ -125,8 +167,6 @@ private[round] final class Socket(
       else if (!hasAi) Color.all foreach { c =>
         playerGet(c, _.isGone) foreach { _ ?? notifyGone(c, true) }
       }
-
-    case GetVersion => sender ! history.getVersion
 
     case IsGone(color) => playerGet(color, _.isGone) pipeTo sender
 
@@ -143,20 +183,31 @@ private[round] final class Socket(
         )
       } pipeTo sender
 
-    case Join(uid, user, color, playerId, ip, userTv, apiVersion) =>
+    case Join(uid, user, color, playerId, ip, onTv, version) =>
       val (enumerator, channel) = Concurrent.broadcast[JsValue]
-      val member = Member(channel, user, color, playerId, ip, userTv = userTv, apiVersion = apiVersion)
-      addMember(uid.value, member)
+      val member = Member(channel, user, color, playerId, ip, onTv)
+      addMember(uid, member)
       notifyCrowd
-      playerDo(color, _.ping)
-      sender ! Connected(enumerator, member)
-      if (member.userTv.isDefined) refreshSubscriptions
+      if (playerId.isDefined) playerDo(color, _.ping)
+      if (member.userTv.isDefined) buscriptions.tv
+      val events = version.fold(history.getRecentEvents(5).some) {
+        history.getEventsSince
+      }
+
+      val initialMsgs = events.fold(resyncMessage.some) {
+        batchMsgs(member, _)
+      } map { m => Enumerator(m: JsValue) }
+
+      sender ! Connected(
+        initialMsgs.fold(enumerator) { _ >>> enumerator },
+        member
+      )
 
     case Nil =>
     case eventList: EventList => notify(eventList.events)
 
     case lila.chat.actorApi.ChatLine(chatId, line) => notify(List(line match {
-      case l: lila.chat.UserLine => Event.UserMessage(l, chatId endsWith "/w")
+      case l: lila.chat.UserLine => Event.UserMessage(l, chatId == chatIds.pub)
       case l: lila.chat.PlayerLine => Event.PlayerMessage(l)
     }))
 
@@ -169,7 +220,7 @@ private[round] final class Socket(
           pgnMoves = a.game.pgnMoves,
           variant = a.variant,
           analysis = a.analysis.some,
-          initialFen = a.initialFen.value,
+          initialFen = a.initialFen,
           withFlags = JsonView.WithFlags(),
           clocks = none
         )
@@ -180,7 +231,7 @@ private[round] final class Socket(
     case TvSelect(msg) => foreachWatcher(_ push msg)
 
     case UserStartGame(userId, game) => foreachWatcher { m =>
-      if (m.onUserTv(userId) && m.userId.fold(true)(id => !game.userIds.contains(id)))
+      if (m.onUserTv(userId) && !m.userId.exists(game.userIds.contains))
         m push makeMessage("resync")
     }
 
@@ -195,42 +246,45 @@ private[round] final class Socket(
         notifyAll(event.typ, event.data)
       }
 
+    case TourStanding(json) => notifyOwners("tourStanding", json)
+
   }: Actor.Receive) orElse lila.chat.Socket.out(
     send = (t, d, _) => notifyAll(t, d)
   )
 
-  override def quit(uid: String) = {
-    members get uid foreach { member =>
+  override def quit(uid: Uid) =
+    if (members contains uid.value) {
       super.quit(uid)
       notifyCrowd
-      if (member.userTv.isDefined) refreshSubscriptions
     }
-  }
 
-  def notifyCrowd {
+  def notifyCrowd: Unit = {
     if (!delayedCrowdNotification) {
       delayedCrowdNotification = true
       context.system.scheduler.scheduleOnce(1 second, self, NotifyCrowd)
     }
   }
 
-  def notify(events: Events) {
+  def notify(events: Events): Unit = {
     val vevents = history addEvents events
     members.foreachValue { m => batch(m, vevents) }
   }
 
-  def batch(member: Member, vevents: List[VersionedEvent]) = vevents match {
-    case Nil =>
-    case List(one) => member push one.jsFor(member)
-    case many => member push makeMessage("b", many map (_ jsFor member))
+  def batchMsgs(member: Member, vevents: List[VersionedEvent]) = vevents match {
+    case Nil => None
+    case List(one) => one.jsFor(member).some
+    case many => makeMessage("b", many map (_ jsFor member)).some
   }
+
+  def batch(member: Member, vevents: List[VersionedEvent]) =
+    batchMsgs(member, vevents) foreach member.push
 
   def notifyOwner[A: Writes](color: Color, t: String, data: A) =
     withOwnerOf(color) {
       _ push makeMessage(t, data)
     }
 
-  def notifyGone(color: Color, gone: Boolean) {
+  def notifyGone(color: Color, gone: Boolean): Unit = {
     notifyOwner(!color, "gone", gone)
   }
 
@@ -239,13 +293,18 @@ private[round] final class Socket(
       if (m.owner && m.color == color) f(m)
     }
 
-  def ownerIsHere(color: Color) =
+  def notifyOwners[A: Writes](t: String, data: A) =
+    members.foreachValue { m =>
+      if (m.owner) m push makeMessage(t, data)
+    }
+
+  def ownerIsHere(color: Color) = playerGet(color, _.isBotConnected) ||
     members.values.exists { m =>
       m.owner && m.color == color
     }
 
-  def ownerOf(uid: String): Option[Member] =
-    members get uid filter (_.owner)
+  def ownerOf(uid: Uid): Option[Member] =
+    members get uid.value filter (_.owner)
 
   def foreachWatcher(f: Member => Unit): Unit = members.foreachValue { m =>
     if (m.watcher) f(m)
@@ -254,7 +313,17 @@ private[round] final class Socket(
   private def playerGet[A](color: Color, getter: Player => A): A =
     getter(color.fold(whitePlayer, blackPlayer))
 
-  private def playerDo(color: Color, effect: Player => Unit) {
+  private def playerDo(color: Color, effect: Player => Unit): Unit = {
     effect(color.fold(whitePlayer, blackPlayer))
+  }
+}
+
+object Socket {
+
+  case class ChatIds(priv: Chat.Id, pub: Chat.Id) {
+    def update(g: Game) =
+      g.tournamentId.map { id => copy(priv = Chat.Id(id)) } orElse
+        g.simulId.map { id => copy(priv = Chat.Id(id)) } getOrElse
+        this
   }
 }

@@ -6,7 +6,8 @@ import lila.pref.{ Pref, PrefApi }
 private[round] final class Takebacker(
     messenger: Messenger,
     uciMemo: UciMemo,
-    prefApi: PrefApi
+    prefApi: PrefApi,
+    bus: lila.common.Bus
 ) {
 
   def yes(situation: Round.TakebackSituation)(pov: Pov)(implicit proxy: GameProxy): Fu[(Events, Round.TakebackSituation)] = IfAllowed(pov.game) {
@@ -21,7 +22,8 @@ private[round] final class Takebacker(
         val progress = Progress(game) map { g =>
           g.updatePlayer(color, _ proposeTakeback g.turns)
         }
-        proxy.save(progress) inject List(Event.TakebackOffers(color.white, color.black))
+        proxy.save(progress) >>- publishTakebackOffer(pov) inject
+          List(Event.TakebackOffers(color.white, color.black))
       } map (_ -> situation)
       case _ => fufail(ClientError("[takebacker] invalid yes " + pov))
     }
@@ -44,7 +46,7 @@ private[round] final class Takebacker(
   }
 
   def isAllowedByPrefs(game: Game): Fu[Boolean] =
-    if (game.hasAi) fuccess(true)
+    if (game.hasAi) fuTrue
     else game.userIds.map { userId =>
       prefApi.getPref(userId, (p: Pref) => p.takeback)
     }.sequenceFu map {
@@ -53,10 +55,19 @@ private[round] final class Takebacker(
       }
     }
 
+  private def publishTakebackOffer(pov: Pov): Unit =
+    if (pov.game.isCorrespondence && pov.game.nonAi) pov.player.userId foreach { userId =>
+      bus.publish(
+        lila.hub.actorApi.round.CorresTakebackOfferEvent(pov.gameId),
+        'offerEventCorres
+      )
+    }
+
   private def IfAllowed[A](game: Game)(f: => Fu[A]): Fu[A] =
     if (!game.playable) fufail(ClientError("[takebacker] game is over " + game.id))
     else isAllowedByPrefs(game) flatMap {
-      _.fold(f, fufail(ClientError("[takebacker] disallowed by preferences " + game.id)))
+      case true => f
+      case _ => fufail(ClientError("[takebacker] disallowed by preferences " + game.id))
     }
 
   private def single(game: Game)(implicit proxy: GameProxy): Fu[Events] = for {

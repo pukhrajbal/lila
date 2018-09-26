@@ -1,12 +1,12 @@
 package lila.study
 
-import chess.Color
-import chess.format.pgn.{ Glyph, Tag }
+import chess.format.pgn.{ Glyph, Tag, Tags }
 import chess.variant.Variant
+import chess.{ Color, Centis }
 import org.joda.time.DateTime
 
 import chess.opening.{ FullOpening, FullOpeningDB }
-import lila.tree.Node.{ Shapes, Comment }
+import lila.tree.Node.{ Shapes, Comment, Gamebook }
 import lila.user.User
 
 case class Chapter(
@@ -15,11 +15,15 @@ case class Chapter(
     name: Chapter.Name,
     setup: Chapter.Setup,
     root: Node.Root,
-    tags: List[Tag],
+    tags: Tags,
     order: Int,
     ownerId: User.ID,
     conceal: Option[Chapter.Ply] = None,
     practice: Option[Boolean] = None,
+    gamebook: Option[Boolean] = None,
+    description: Option[String] = None,
+    relay: Option[Chapter.Relay] = None,
+    serverEval: Option[Chapter.ServerEval] = None,
     createdAt: DateTime
 ) extends Chapter.Like {
 
@@ -28,9 +32,11 @@ case class Chapter(
       copy(root = newRoot)
     }
 
-  def addNode(node: Node, path: Path): Option[Chapter] =
-    updateRoot { root =>
-      root.withChildren(_.addNodeAt(node, path))
+  def addNode(node: Node, path: Path, newRelay: Option[Chapter.Relay] = None): Option[Chapter] =
+    updateRoot {
+      _.withChildren(_.addNodeAt(node, path))
+    } map {
+      _.copy(relay = newRelay orElse relay)
     }
 
   def setShapes(shapes: Shapes, path: Path): Option[Chapter] =
@@ -39,11 +45,17 @@ case class Chapter(
   def setComment(comment: Comment, path: Path): Option[Chapter] =
     updateRoot(_.setCommentAt(comment, path))
 
+  def setGamebook(gamebook: Gamebook, path: Path): Option[Chapter] =
+    updateRoot(_.setGamebookAt(gamebook, path))
+
   def deleteComment(commentId: Comment.Id, path: Path): Option[Chapter] =
     updateRoot(_.deleteCommentAt(commentId, path))
 
   def toggleGlyph(glyph: Glyph, path: Path): Option[Chapter] =
     updateRoot(_.toggleGlyphAt(glyph, path))
+
+  def setClock(clock: Option[Centis], path: Path): Option[Chapter] =
+    updateRoot(_.setClockAt(clock, path))
 
   def opening: Option[FullOpening] =
     if (!Variant.openingSensibleVariants(setup.variant)) none
@@ -60,17 +72,24 @@ case class Chapter(
 
   def metadata = Chapter.Metadata(_id = _id, name = name, setup = setup)
 
-  def setTag(tag: Tag) = copy(
-    tags = PgnTags(tag :: tags.filterNot(_.name == tag.name))
-  )
-
   def isPractice = ~practice
+  def isGamebook = ~gamebook
   def isConceal = conceal.isDefined
 
   def withoutChildren = copy(root = root.withoutChildren)
+
+  def withoutChildrenIfPractice = if (isPractice) copy(root = root.withoutChildren) else this
+
+  def relayAndTags = relay map { Chapter.RelayAndTags(id, _, tags) }
+
+  def isOverweight = root.children.countRecursive >= Chapter.maxNodes
 }
 
 object Chapter {
+
+  // I've seen chapters with 35,000 nodes on prod.
+  // It works but could be used for DoS.
+  val maxNodes = 3000
 
   case class Id(value: String) extends AnyVal with StringValue
   implicit val idIso = lila.common.Iso.string[Id](Id.apply, _.value)
@@ -88,7 +107,7 @@ object Chapter {
   }
 
   case class Setup(
-      gameId: Option[String],
+      gameId: Option[lila.game.Game.ID],
       variant: Variant,
       orientation: Color,
       fromFen: Option[Boolean] = None
@@ -96,10 +115,33 @@ object Chapter {
     def isFromFen = ~fromFen
   }
 
+  case class Relay(
+      index: Int, // game index in the source URL
+      path: Path,
+      lastMoveAt: DateTime
+  ) {
+    def secondsSinceLastMove: Int = (nowSeconds - lastMoveAt.getSeconds).toInt
+  }
+
+  case class ServerEval(path: Path, done: Boolean)
+
+  case class RelayAndTags(id: Id, relay: Relay, tags: Tags) {
+
+    def looksAlive =
+      tags.resultColor.isEmpty &&
+        relay.lastMoveAt.isAfter {
+          DateTime.now.minusMinutes {
+            tags.clockConfig.fold(40)(_.limitInMinutes.toInt / 2 atLeast 15 atMost 60)
+          }
+        }
+
+    def looksOver = !looksAlive
+  }
+
   case class Metadata(
-    _id: Chapter.Id,
-    name: Chapter.Name,
-    setup: Chapter.Setup
+      _id: Chapter.Id,
+      name: Chapter.Name,
+      setup: Chapter.Setup
   ) extends Like
 
   case class IdName(id: Id, name: Name)
@@ -110,8 +152,8 @@ object Chapter {
 
   def defaultName(order: Int) = Name(s"Chapter $order")
 
-  private val defaultNamePattern = """^Chapter \d+$""".r.pattern
-  def isDefaultName(n: Name) = n.value.isEmpty || defaultNamePattern.matcher(n.value).matches
+  private val defaultNameRegex = """Chapter \d+""".r
+  def isDefaultName(n: Name) = n.value.isEmpty || defaultNameRegex.matches(n.value)
 
   def fixName(n: Name) = Name(n.value.trim take 80)
 
@@ -119,7 +161,7 @@ object Chapter {
 
   def makeId = Id(scala.util.Random.alphanumeric take idSize mkString)
 
-  def make(studyId: Study.Id, name: Name, setup: Setup, root: Node.Root, tags: List[Tag], order: Int, ownerId: User.ID, practice: Boolean, conceal: Option[Ply]) = Chapter(
+  def make(studyId: Study.Id, name: Name, setup: Setup, root: Node.Root, tags: Tags, order: Int, ownerId: User.ID, practice: Boolean, gamebook: Boolean, conceal: Option[Ply], relay: Option[Relay] = None) = Chapter(
     _id = makeId,
     studyId = studyId,
     name = fixName(name),
@@ -129,7 +171,9 @@ object Chapter {
     order = order,
     ownerId = ownerId,
     practice = practice option true,
+    gamebook = gamebook option true,
     conceal = conceal,
+    relay = relay,
     createdAt = DateTime.now
   )
 }

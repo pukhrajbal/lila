@@ -2,14 +2,14 @@ package lila.simul
 package actorApi
 
 import lila.game.Game
-import lila.socket.Socket.Uid
+import lila.socket.Socket.{ Uid, SocketVersion }
 import lila.socket.SocketMember
 import lila.user.User
 
 private[simul] case class Member(
-  channel: JsChannel,
-  userId: Option[String],
-  troll: Boolean
+    channel: JsChannel,
+    userId: Option[String],
+    troll: Boolean
 ) extends SocketMember
 
 private[simul] object Member {
@@ -22,7 +22,7 @@ private[simul] object Member {
 
 private[simul] case class Messadata(trollish: Boolean = false)
 
-private[simul] case class Join(uid: Uid, user: Option[User])
+private[simul] case class Join(uid: Uid, user: Option[User], version: Option[SocketVersion])
 private[simul] case class Talk(tourId: String, u: String, t: String, troll: Boolean)
 private[simul] case class StartGame(game: Game, hostId: String)
 private[simul] case class StartSimul(firstGame: Game, hostId: String)

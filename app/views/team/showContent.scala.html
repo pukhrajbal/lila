@@ -23,9 +23,9 @@
 </div>
 <div class="team-right">
   <p class="description">
-    @autoLink(t.description)
+    @richText(t.description)
     @t.location.map { loc =>
-    <br />@trans.location(): @autoLink(loc)
+    <br />@trans.location(): @richText(loc)
     }
   </p>
   <div class="actions">
@@ -40,7 +40,7 @@
     }
     }
     }
-    @if(isGranted(_.CloseTeam)) {
+    @if(isGranted(_.ManageTeam)) {
     <form class="inline" method="post" action="@routes.Team.close(t.id)">
       <button data-icon="q" class="submit text button thin confirm" type="submit"
         title="Deletes the team and its memberships. Cannot be reverted!">Delete</button>
@@ -55,7 +55,7 @@
         <p class="meta clearfix">
           <a href="@routes.ForumPost.redirect(p.postId)">@p.topicName</a>
           @userIdLink(p.userId, withOnline = false)
-          @momentFormat(p.createdAt)
+          @momentFromNow(p.createdAt)
         </p>
         <p>@shorten(p.text, 200)</p>
       </li>
@@ -68,7 +68,7 @@
         <input class="submit button small confirm" type="submit" value="@trans.quitTeam()" />
       </form>
       }
-      @if(info.createdByMe) {
+      @if(info.createdByMe || isGranted(_.Admin)) {
       <a href="@routes.Team.edit(t.id)" class="submit button small" data-icon="%"> @trans.settings()</a>
       }
     </div>

@@ -1,11 +1,15 @@
 package controllers
 
+import play.api.libs.iteratee._
 import play.api.libs.json.Json
+import play.api.mvc._
 
 import lila.api.Context
 import lila.app._
 import lila.common.paginator.{ Paginator, AdapterLike, PaginatorJson }
+import lila.common.{ HTTPRequest, MaxPerSecond }
 import lila.relation.Related
+import lila.relation.RelationStream._
 import lila.user.{ User => UserModel, UserRepo }
 import views._
 
@@ -18,10 +22,10 @@ object Relation extends LilaController {
       (ctx.isAuth ?? { Env.pref.api followable userId }) zip
       (ctx.userId ?? { env.api.fetchBlocks(userId, _) }) flatMap {
         case relation ~ followable ~ blocked => negotiate(
-          html = fuccess(Ok(mini.fold(
-            html.relation.mini(userId, blocked = blocked, followable = followable, relation = relation),
-            html.relation.actions(userId, relation = relation, blocked = blocked, followable = followable)
-          ))),
+          html = fuccess(Ok {
+            if (mini) html.relation.mini(userId, blocked = blocked, followable = followable, relation = relation)
+            else html.relation.actions(userId, relation = relation, blocked = blocked, followable = followable)
+          }),
           api = _ => fuccess(Ok(Json.obj(
             "followable" -> followable,
             "following" -> relation.contains(true),
@@ -52,8 +56,8 @@ object Relation extends LilaController {
         RelatedPager(env.api.followingPaginatorAdapter(user.id), page) flatMap { pag =>
           negotiate(
             html = env.api countFollowers user.id map { nbFollowers =>
-            Ok(html.relation.following(user, pag, nbFollowers))
-          },
+              Ok(html.relation.following(user, pag, nbFollowers))
+            },
             api = _ => Ok(jsonRelatedPaginator(pag)).fuccess
           )
         }
@@ -67,10 +71,27 @@ object Relation extends LilaController {
         RelatedPager(env.api.followersPaginatorAdapter(user.id), page) flatMap { pag =>
           negotiate(
             html = env.api countFollowing user.id map { nbFollowing =>
-            Ok(html.relation.followers(user, pag, nbFollowing))
-          },
+              Ok(html.relation.followers(user, pag, nbFollowing))
+            },
             api = _ => Ok(jsonRelatedPaginator(pag)).fuccess
           )
+        }
+      }
+    }
+  }
+
+  def apiFollowing(name: String) = apiRelation(name, Direction.Following)
+
+  def apiFollowers(name: String) = apiRelation(name, Direction.Followers)
+
+  private def apiRelation(name: String, direction: Direction) = Action.async { req =>
+    UserRepo.named(name) flatMap {
+      _ ?? { user =>
+        import Api.limitedDefault
+        Api.GlobalLinearLimitPerIP(HTTPRequest lastRemoteAddress req) {
+          Api.jsonStream {
+            env.stream.follow(user, direction, MaxPerSecond(20)) &> Enumeratee.map(Env.api.userApi.one)
+          } |> fuccess
         }
       }
     }
@@ -79,14 +100,12 @@ object Relation extends LilaController {
   private def jsonRelatedPaginator(pag: Paginator[Related]) = {
     import lila.user.JsonView.nameWrites
     import lila.relation.JsonView.relatedWrites
-    import lila.common.PimpedJson._
     Json.obj("paginator" -> PaginatorJson(pag.mapResults { r =>
       relatedWrites.writes(r) ++ Json.obj(
-        "online" -> Env.user.isOnline(r.user.id).option(true),
         "perfs" -> r.user.perfs.bestPerfType.map { best =>
           lila.user.JsonView.perfs(r.user, best.some)
         }
-      ).noNull
+      ).add("online" -> Env.user.isOnline(r.user.id))
     }))
   }
 
@@ -101,7 +120,7 @@ object Relation extends LilaController {
   private def RelatedPager(adapter: AdapterLike[String], page: Int)(implicit ctx: Context) = Paginator(
     adapter = adapter mapFutureList followship,
     currentPage = page,
-    maxPerPage = 30
+    maxPerPage = lila.common.MaxPerPage(30)
   )
 
   private def followship(userIds: Seq[String])(implicit ctx: Context): Fu[List[Related]] =

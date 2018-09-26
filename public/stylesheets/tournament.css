@@ -3,9 +3,9 @@ div.create_tournament {
   top: 26px;
   right: 15px;
 }
-ol.scheduled_tournaments a {
-  font-weight: bold;
-  display: block;
+#tournament .init.spinner {
+  padding-top: 200px;
+  margin: 0 auto 0 auto;
 }
 #tournament .header {
   display: flex;
@@ -41,6 +41,7 @@ ol.scheduled_tournaments a {
 #tournament .header h1 {
   flex: 9 1 auto;
   padding: 0;
+  overflow: hidden;
 }
 #tournament.scheduled .header h1 {
   letter-spacing: 2px;
@@ -100,7 +101,6 @@ ol.scheduled_tournaments a {
   opacity: 0.7;
   transition: 1s;
   font-family: "lichess" !important;
-  speak: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -109,7 +109,26 @@ ol.scheduled_tournaments a {
 }
 #tournament.marathon .fire_trophy {
   filter: hue-rotate(190deg);
-  -webkit-filter: hue-rotate(190deg);
+}
+#tournament.shield h1 {
+  padding-left: 90px;
+  letter-spacing: 2px;
+}
+#tournament .shield_trophy {
+  position: absolute;
+  top: -15px;
+  left: 10px;
+  display: block;
+  width: 67px;
+  height: 80px;
+  background: url(../images/trophy/shield-gold.png) no-repeat;
+  background-size: contain;
+  font-family: "lichess" !important;
+  font-size: 40px;
+  line-height: 80px;
+  text-align: center;
+  color: #333!important;
+  text-shadow: 0 0 6px #fff;
 }
 #tournament .description {
   padding: 20px;
@@ -135,7 +154,7 @@ ol.scheduled_tournaments a {
 #tournament .podium .first .trophy {
   height: 150px;
   width: 195px;
-  background: url(../images/icons/trophy-1.png) no-repeat;
+  background: url(../images/icons/trophy-1.svg) no-repeat;
   background-size: cover;
 }
 #tournament .podium .second .trophy {
@@ -154,12 +173,7 @@ ol.scheduled_tournaments a {
 }
 #tournament .podium .user_link {
   font-weight: bold;
-}
-#tournament .podium .progress {
-  display: block;
-}
-#tournament .podium .progress span {
-  font-size: 0.8em;
+  letter-spacing: -1px;
 }
 #tournament .podium .stats {
   margin: 0.5em auto 0 auto;
@@ -241,11 +255,29 @@ ol.scheduled_tournaments a {
   justify-content: space-between;
   position: relative;
 }
+@keyframes delay {
+  0% {
+    width: 0%;
+  } 100% {
+    width: 100%;
+  }
+}
+#tournament .delay {
+  background: rgba(117, 153, 0, 0.5);
+  width: 0%;
+}
+#tournament .delay button {
+  opacity: 0.7;
+  color: #666;
+  mix-blend-mode: luminosity;
+}
+body.dark #tournament .delay button {
+  color: #aaa;
+}
 #tournament .highlight {
   position: absolute;
   right: 5px;
   top: -3px;
-  transform: translate(0px,0px);
   padding: 8px 20px;
   border-radius: 8px;
   color: #FFF;
@@ -253,8 +285,8 @@ ol.scheduled_tournaments a {
   background: #82BF56;
   border-bottom: 5px solid #759900;
   text-shadow: 0 -1px #759900;
-  transition: all 0.08s;
-  filter: brightness(1);
+  transition: all 0.1s;
+  transform: translate(0px,0px);
 }
 #tournament .highlight:hover {
   filter: brightness(1.06);
@@ -274,10 +306,29 @@ ol.scheduled_tournaments a {
 #tournament .pager {
   user-select: none;
   -webkit-user-select: none;
+  display: flex;
+  align-items: center;
 }
 #tournament .pager .page {
   margin: 0 3px;
 }
+
+#tournament .pager input {
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  padding-left: 10px;
+}
+#tournament .pager .search,
+#tournament .pager input,
+#tournament .twitter-typeahead {
+  height: 100%;
+}
+#tournament .search .tt-menu .spinner {
+  float: none;
+  margin: 10px auto;
+}
+
 #tournament .notice {
   color: #FFF;
   background: #639B24;
@@ -312,17 +363,13 @@ ol.scheduled_tournaments a {
 #tournament table.standing .user_link.long {
   letter-spacing: -0.7px;
 }
-#tournament table.standing .user_link .progress {
+#tournament table.standing .user_link .rating {
   font-style: italic;
   font-size: 0.8em;
-  letter-spacing: 0;
 }
-#tournament table.standing tr.long .user_link .progress {
+#tournament table.standing tr.long .user_link .rating {
   display: block;
   padding-left: 0px;
-}
-#tournament table.standing .user_link .progress span {
-  padding-left: 5px;
 }
 #tournament table.standing tbody tr {
   transition: 0.13s;
@@ -340,6 +387,9 @@ ol.scheduled_tournaments a {
 }
 #tournament table.standing tr.me td:first-child {
   background: linear-gradient(to right, rgba(99,155,36,0.7) 0px, rgba(99,155,36,0.7) 5px, rgba(0,0,0,0) 5px, rgba(0,0,0,0) 100%);
+}
+#tournament table.standing tr.active td:last-child {
+  background: linear-gradient(to left, rgba(56,147,232,0.7) 0px, rgba(56,147,232,0.7) 5px, rgba(0,0,0,0) 5px, rgba(0,0,0,0) 100%);
 }
 #tournament table.slist td.rank {
   font-family: 'Roboto';
@@ -386,7 +436,7 @@ ol.scheduled_tournaments a {
 }
 #tournament form.plain td {
   padding: 0.6em;
-  white-space: nowrap;
+  white-space: wrap;
 }
 #tournament form.plain label {
   margin-right: 10px;
@@ -444,14 +494,22 @@ ol.scheduled_tournaments a {
   margin-top: 30px;
   width: 300px;
 }
-.setup {
+.header .setup {
   text-transform: uppercase;
+}
+.header .help {
+  opacity: 0.6;
 }
 div.side_box .game_infos.spotlight {
   padding-left: 0;
 }
 div.side_box .game_infos.spotlight a {
   text-decoration: underline;
+}
+.defender::before {
+  font-size: 1.6em;
+  vertical-align: -0.26em;
+  margin: 0 0.15em 0 -0.15em;
 }
 div.side_box .conditions::before {
   opacity: 0.6;
@@ -512,7 +570,8 @@ div.side_box .refused {
 }
 #tournament_side .scroll-shadow-soft {
   max-height: 400px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 #tournament_side .spinner {
   width: 70px;
@@ -520,8 +579,13 @@ div.side_box .refused {
   margin: 30px auto;
   opacity: 0.8;
 }
-#tournament_side .player .rank {
-  display: none;
+#tournament_side .player,
+#tournament_side .featured {
+  box-shadow: 0 .5px 2px rgba(0, 0, 0, 0.15);
+}
+body.dark #tournament_side .player,
+body.dark #tournament_side .featured {
+  box-shadow: 0 1px 2px #000;
 }
 #tournament_side .user_link .name {
   padding-right: 5px;
@@ -585,6 +649,10 @@ div.side_box .refused {
   font-family: 'Roboto';
   font-weight: 300;
 }
+#tournament_side .player .pairings span.title {
+  color: #d59120;
+  font-weight: bold;
+}
 #tournament_side .player .pairings tr:hover th {
   border-left-color: #888!important;
 }
@@ -595,8 +663,8 @@ div.side_box .refused {
   border-left-color: #dc322f!important;
 }
 #tournament_side .player .pairings td:nth-child(2) {
-  width: 110px;
-  max-width: 110px;
+  width: 108px;
+  max-width: 108px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -617,20 +685,82 @@ div.side_box .refused {
 #tournament_side .player .color-icon {
   opacity: 0.6;
 }
-#tournament_side .all_pairings {
-  font-style: italic;
+#tournament_side .duels h3 {
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  letter-spacing: 2px;
+  opacity: 0.8;
 }
-#tournament_side .all_pairings a {
-  padding: 0.3em 0.2em;
-  display: block;
+#tournament_side .duels a {
+  padding: 0.5em 0.7em;
   white-space: nowrap;
-  overflow: hidden;
+  border: 1px solid rgba(150,150,150,0.25);
+  display: flex;
+  flex-flow: column;
+  line-height: 1.9em;
+  border-bottom: none;
+  background: none;
 }
-#tournament_side .all_pairings > a > * {
-  margin: 0 5px;
-  font-weight: bold;
+#tournament_side .duels a:first-child {
+  border-top: none;
+}
+#tournament_side .duels a:nth-child(even) {
+  border-left: none;
+}
+#tournament_side .duels a:nth-child(odd) {
+  border-right: none;
+}
+#tournament_side .duels a:hover {
+  background: rgba(191, 231, 255, 0.7);
+}
+body.dark #tournament_side .duels a:hover {
+  background: rgba(27, 51, 68, 0.7);
+}
+#tournament_side .duels line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+#tournament_side .duels .white {
+  text-align: left;
+}
+#tournament_side .duels .black {
+  text-align: right;
+}
+#tournament_side .duels em {
   font-style: normal;
 }
+#tournament_side .duels strong {
+  font-size: 1.2em;
+  display: block;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#tournament_side .duels span {
+}
+#tournament_side .duels .title {
+  color: #d59120;
+  font-weight: bold;
+}
+#tournament_side .duels .rank {
+  padding: 0.1em 0.5em;
+  background: rgba(128,128,128,0.5);
+  color: #fff;
+  border-radius: 2px;
+}
+body.dark #tournament_side .duels .rank {
+  color: #ccc;
+}
+#tournament_side .duels .b .title,
+#tournament_side .duels .b .rank {
+  margin-right: 0.3em;
+}
+#tournament_side .duels .a .title,
+#tournament_side .duels .a .rank {
+  margin-left: 0.3em;
+}
+
 #tournament_side win {
   color: #33aa33;
 }
@@ -692,13 +822,6 @@ div.faq_page h1 {
 div.faq_box {
   margin-top: 15px;
 }
-#site_header .tournament_links {
-  margin-top: 10px;
-}
-#site_header .tournament_links a {
-  line-height: 2em;
-  display: block;
-}
 .leaderboard_title {
   font-size: 1.5em;
   margin-top: 30px;
@@ -725,22 +848,35 @@ div.faq_box {
 .leaderboard_title:hover a {
   color: #3893E8;
 }
-ol.scheduled_tournaments li {
+.scheduled_tournaments a {
   padding: 5px 0;
+  display: block;
+  transition: all 0.3s;
 }
-ol.scheduled_tournaments li::before {
+.scheduled_tournaments a:hover {
+  padding-left: 5px;
+  box-shadow: 0 1px 1px rgba(0,0,0,0.3);
+  background: #fff;
+  border-radius: 3px;
+}
+body.dark .scheduled_tournaments a:hover {
+  background: rgba(27, 51, 68, 0.5);
+  background: #333;
+}
+.scheduled_tournaments strong {
+  display: block;
+}
+.scheduled_tournaments a::before {
   font-size: 30px;
   float: left;
   margin: 3px 5px 0 0;
-  opacity: 0.8;
+  opacity: 0.6;
+  transition: opacity 0.3s;
 }
-ol.scheduled_tournaments li:hover::before {
+.scheduled_tournaments a:hover::before {
   opacity: 1;
 }
-ol.scheduled_tournaments li.marathon {
-  background: #fff;
-  box-shadow: 0 0 9px rgba(0,0,0,0.2);
-}
+
 #tournament_schedule {
   min-height: 400px;
   position: relative;
@@ -761,19 +897,19 @@ ol.scheduled_tournaments li.marathon {
   cursor: move;
 }
 #tournament_schedule .tournament {
+  display: flex;
   position: absolute;
   box-sizing: border-box;
   padding: 4px 0;
   background-color: #303E43;
   box-shadow: 0 5px 15px rgba(0,0,0,0.5);
   border-radius: 2px;
-  transition: -webkit-filter 0.13s, filter 0.13s;
+  transition: filter 0.13s;
   color: #fff;
   white-space: nowrap;
   font-size: 13px;
 }
 #tournament_schedule .tournament.joinable:hover {
-  -webkit-filter: brightness(1.08);
   filter: brightness(1.08);
 }
 #tournament_schedule .timeline {
@@ -783,6 +919,9 @@ ol.scheduled_tournaments li.marathon {
 }
 #tournament_schedule .tournamentline {
   position: relative;
+  height: 3em;
+}
+#tournament_schedule .tournamentline.large {
   height: 5em;
 }
 #tournament_schedule .timeheader {
@@ -850,9 +989,6 @@ ol.scheduled_tournaments li.marathon {
 #tournament_schedule .tournament.max-rating {
   background-color: #8572ff;
 }
-#tournament_schedule .tournament {
-  display: flex;
-}
 #tournament_schedule .tournament.short.thematic {
   letter-spacing: -1px;
 }
@@ -860,8 +996,8 @@ ol.scheduled_tournaments li.marathon {
   margin-right: 4px;
 }
 #tournament_schedule .icon {
-  font-size: 2.4em;
-  margin: -6px 2px 0 4px;
+  font-size: 1.3em;
+  margin: -4px 2px -1px 4px;
 }
 #tournament_schedule .tournament .body {
   flex: 1 0;
@@ -873,11 +1009,13 @@ ol.scheduled_tournaments li.marathon {
   color: white;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: block;
   white-space: nowrap;
+  display: inline-block;
+  vertical-align: top;
+  max-width: 66%;
 }
 #tournament_schedule .infos {
-  display: flex;
+  display: inline-flex;
 }
 #tournament_schedule .infos .text {
   flex: 1 1;
@@ -887,6 +1025,19 @@ ol.scheduled_tournaments li.marathon {
 #tournament_schedule .infos .nb-players {
   flex: 0 0 auto;
 }
+
+#tournament_schedule .large .icon {
+  font-size: 2.4em;
+  margin: -6px 4px 0 4px;
+}
+#tournament_schedule .large .name {
+  display: block;
+  max-width: none;
+}
+#tournament_schedule .large .name {
+  display: flex;
+}
+
 #tournament_list table.slist {
   line-height: 2.3em;
 }

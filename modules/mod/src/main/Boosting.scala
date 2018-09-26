@@ -1,7 +1,6 @@
 package lila.mod
 
-import chess.Color
-import chess.variant
+import chess.{ Color, variant }
 import lila.db.dsl._
 import lila.game.Game
 import lila.user.User
@@ -36,7 +35,7 @@ final class BoostingApi(
       {
         (record.games >= (winner.count.rated * ratioGamesToMark)) ?? modApi.autoBooster(winner.id, loser.id)
       } >> {
-        (record.games >= (loser.count.rated * ratioGamesToMark)) ?? modApi.autoBooster(loser.id, winner.id)
+        (record.games >= (loser.count.rated * ratioGamesToMark)) ?? modApi.autoBooster(winner.id, loser.id)
       }
     }
 
@@ -73,8 +72,7 @@ final class BoostingApi(
         }
         case none => funit
       }
-    }
-    else {
+    } else {
       funit
     }
   }
@@ -88,7 +86,7 @@ object BoostingApi {
   }
 
   case class GameResult(
-    winner: User,
-    loser: User
+      winner: User,
+      loser: User
   )
 }

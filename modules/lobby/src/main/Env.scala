@@ -3,8 +3,6 @@ package lila.lobby
 import akka.actor._
 import com.typesafe.config.Config
 
-import lila.common.PimpedConfig._
-
 final class Env(
     config: Config,
     db: lila.db.Env,
@@ -72,11 +70,9 @@ final class Env(
 
   private val abortListener = new AbortListener(seekApi = seekApi)
 
-  system.lilaBus.subscribe(system.actorOf(Props(new Actor {
-    def receive = {
-      case lila.game.actorApi.AbortedBy(pov) => abortListener(pov)
-    }
-  })), 'abortGame)
+  system.lilaBus.subscribeFun('abortGame) {
+    case lila.game.actorApi.AbortedBy(pov) => abortListener(pov)
+  }
 }
 
 object Env {

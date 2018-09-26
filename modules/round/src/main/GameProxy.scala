@@ -4,7 +4,7 @@ import chess.Color
 import lila.game.{ Game, Progress, Pov, GameRepo }
 import ornicar.scalalib.Zero
 
-private final class GameProxy(id: String) {
+private final class GameProxy(id: Game.ID) {
 
   def game: Fu[Option[Game]] = cache
 
@@ -25,11 +25,11 @@ private final class GameProxy(id: String) {
 
   // convenience helpers
 
-  def pov(color: Color) = game.map {
+  def pov(color: Color) = game.dmap {
     _ map { Pov(_, color) }
   }
 
-  def playerPov(playerId: String) = game.map {
+  def playerPov(playerId: String) = game.dmap {
     _ flatMap { Pov(_, playerId) }
   }
 
@@ -37,9 +37,9 @@ private final class GameProxy(id: String) {
 
   // internals
 
-  private var cache: Fu[Option[Game]] = fetch
+  private[this] var cache: Fu[Option[Game]] = fetch
 
-  private def fetch = GameRepo game id
+  private[this] def fetch = GameRepo game id
 }
 
 object GameProxy {

@@ -21,7 +21,9 @@ case class Post(
     lang: Option[String],
     editHistory: Option[List[OldVersion]] = None,
     createdAt: DateTime,
-    updatedAt: Option[DateTime] = None
+    updatedAt: Option[DateTime] = None,
+    erasedAt: Option[DateTime] = None,
+    modIcon: Option[Boolean]
 ) {
 
   private val permitEditsFor = 4 hours
@@ -31,17 +33,16 @@ case class Post(
 
   def showAuthor = (author map (_.trim) filter ("" !=)) | User.anonymous
 
-  def showUserIdOrAuthor = userId | showAuthor
+  def showUserIdOrAuthor = if (erased) lila.common.String.erased else userId | showAuthor
 
   def isTeam = categId startsWith teamSlug("")
 
-  def isStaff = categId == "staff"
+  def isStaff = categId == Categ.staffId
 
   def updatedOrCreatedAt = updatedAt | createdAt
 
-  def canStillBeEdited() = {
+  def canStillBeEdited =
     updatedOrCreatedAt.plus(permitEditsFor.toMillis).isAfter(DateTime.now)
-  }
 
   def canBeEditedBy(editingId: String): Boolean = userId.fold(false)(editingId == _)
 
@@ -59,6 +60,10 @@ case class Post(
   }
 
   def hasEdits = editHistory.isDefined
+
+  def displayModIcon = ~modIcon
+
+  def erased = erasedAt.isDefined
 }
 
 object Post {
@@ -77,7 +82,8 @@ object Post {
     number: Int,
     lang: Option[String],
     troll: Boolean,
-    hidden: Boolean
+    hidden: Boolean,
+    modIcon: Option[Boolean]
   ): Post = {
 
     Post(
@@ -92,7 +98,8 @@ object Post {
       troll = troll,
       hidden = hidden,
       createdAt = DateTime.now,
-      categId = categId
+      categId = categId,
+      modIcon = modIcon
     )
   }
 }

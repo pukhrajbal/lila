@@ -6,6 +6,7 @@ import lila.memo.Syncache
 
 final class LastPostCache(
     api: BlogApi,
+    notifier: Notifier,
     ttl: FiniteDuration,
     collection: String
 )(implicit system: akka.actor.ActorSystem) {
@@ -19,19 +20,23 @@ final class LastPostCache(
     logger = logger
   )
 
-  private def fetch = {
+  private def fetch: Fu[List[MiniPost]] = {
     api.prismicApi flatMap { prismic =>
-      api.recent(prismic, none, 3) map {
+      api.recent(prismic, none, page = 1, lila.common.MaxPerPage(3)) map {
         _ ?? {
-          _.results.toList flatMap MiniPost.fromDocument(collection)
+          _.currentPageResults.toList flatMap MiniPost.fromDocument(collection)
         }
       }
     }
-  }
+  } addEffect maybeNotifyLastPost
+
+  private var lastNotifiedId = none[String]
+
+  private def maybeNotifyLastPost(posts: List[MiniPost]): Unit =
+    posts.headOption foreach { last =>
+      if (lastNotifiedId.??(last.id !=)) notifier(last.id)
+      lastNotifiedId = last.id.some
+    }
 
   def apply = cache sync true
-
-  private[blog] def clear {
-    cache invalidate true
-  }
 }

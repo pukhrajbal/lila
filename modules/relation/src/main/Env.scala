@@ -4,8 +4,6 @@ import akka.actor._
 import com.typesafe.config.Config
 import scala.concurrent.duration._
 
-import lila.common.PimpedConfig._
-
 final class Env(
     config: Config,
     db: lila.db.Env,
@@ -41,11 +39,16 @@ final class Env(
     maxBlock = MaxBlock
   )
 
+  lazy val stream = new RelationStream(coll = coll)(system)
+
   val online = new OnlineDoing(
     api,
     lightUser = lightUserApi.sync,
     onlineUserIds
   )
+
+  def isPlaying(userId: lila.user.User.ID): Boolean =
+    online.playing.get(userId)
 
   private[relation] val actor = system.actorOf(Props(new RelationActor(
     lightUser = lightUserApi.sync,

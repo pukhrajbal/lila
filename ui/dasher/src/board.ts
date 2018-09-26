@@ -5,6 +5,7 @@ import { Redraw, Close, bind, header } from './util'
 
 export interface BoardCtrl {
   data: BoardData
+  trans: Trans
   setIs3d(v: boolean): void
   setZoom(v: number): void
   close(): void
@@ -17,7 +18,7 @@ export interface BoardData {
 
 export type PublishZoom = (v: number) => void;
 
-export function ctrl(data: BoardData, publishZoom: PublishZoom, redraw: Redraw, close: Close): BoardCtrl {
+export function ctrl(data: BoardData, trans: Trans, publishZoom: PublishZoom, redraw: Redraw, close: Close): BoardCtrl {
 
   data.zoom = data.zoom || 100;
 
@@ -27,11 +28,13 @@ export function ctrl(data: BoardData, publishZoom: PublishZoom, redraw: Redraw, 
 
   return {
     data,
+    trans,
     setIs3d(v: boolean) {
       data.is3d = v;
-      $.post('/pref/is3d', { is3d: v }, window.lichess.reloadOtherTabs);
-      applyDimension(v);
-      publishZoom(data.zoom / 100);
+      $.post('/pref/is3d', { is3d: v }, () => {
+        window.lichess.reloadOtherTabs();
+        window.lichess.reload();
+      });
       redraw();
     },
     setZoom(v: number) {
@@ -46,7 +49,7 @@ export function ctrl(data: BoardData, publishZoom: PublishZoom, redraw: Redraw, 
 export function view(ctrl: BoardCtrl): VNode {
 
   return h('div.sub.board', [
-    header('Board geometry', ctrl.close),
+    header(ctrl.trans.noarg('boardGeometry'), ctrl.close),
     h('div.selector', [
       h('a.text', {
         class: { active: !ctrl.data.is3d },
@@ -60,7 +63,7 @@ export function view(ctrl: BoardCtrl): VNode {
       }, '3D')
     ]),
     h('div.zoom', [
-      h('h2', 'Board size'),
+      h('h2', ctrl.trans.noarg('boardSize')),
       h('div.slider', {
         hook: { insert: vnode => makeSlider(ctrl, vnode.elm as HTMLElement) }
       })
@@ -80,15 +83,4 @@ function makeSlider(ctrl: BoardCtrl, el: HTMLElement) {
       slide: (_: any, ui: any) => ctrl.setZoom(ui.value)
     });
   });
-}
-
-function applyDimension(is3d: boolean) {
-
-  $('body').children('.content').removeClass('is2d is3d').addClass(is3d ? 'is3d' : 'is2d');
-
-  if (is3d && !$('link[href*="board-3d.css"]').length) {
-    $('link[href*="board.css"]').clone().each(function(this: HTMLElement) {
-      $(this).attr('href', $(this).attr('href').replace(/board\.css/, 'board-3d.css')).appendTo('head');
-    });
-  }
 }

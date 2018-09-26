@@ -18,7 +18,9 @@ case class PlayerAssessment(
     mtAvg: Int,
     mtSd: Int,
     blurs: Int,
-    hold: Boolean
+    hold: Boolean,
+    blurStreak: Option[Int],
+    mtStreak: Option[Boolean]
 ) {
 
   val color = Color(white)
@@ -26,9 +28,7 @@ case class PlayerAssessment(
 
 case class PlayerAggregateAssessment(
     user: User,
-    playerAssessments: List[PlayerAssessment],
-    relatedUsers: List[String],
-    relatedCheaters: Set[String]
+    playerAssessments: List[PlayerAssessment]
 ) {
   import Statistics._
   import AccountAction._
@@ -37,20 +37,20 @@ case class PlayerAggregateAssessment(
   def action: AccountAction = {
 
     def percentCheatingGames(x: Double) =
-      cheatingSum.toDouble / assessmentsCount >= (x / 100) - relationModifier
+      cheatingSum.toDouble / assessmentsCount >= (x / 100)
 
     def percentLikelyCheatingGames(x: Double) =
-      (cheatingSum + likelyCheatingSum).toDouble / assessmentsCount >= (x / 100) - relationModifier
+      (cheatingSum + likelyCheatingSum).toDouble / assessmentsCount >= (x / 100)
 
     val markable: Boolean = !isGreatUser && isWorthLookingAt &&
       (cheatingSum >= 3 || cheatingSum + likelyCheatingSum >= 6) &&
       (percentCheatingGames(10) || percentLikelyCheatingGames(20))
 
     val reportable: Boolean = isWorthLookingAt &&
-      (cheatingSum >= 2 || cheatingSum + likelyCheatingSum >= (isNewRatedUser.fold(2, 4))) &&
+      (cheatingSum >= 2 || cheatingSum + likelyCheatingSum >= (if (isNewRatedUser) 2 else 4)) &&
       (percentCheatingGames(5) || percentLikelyCheatingGames(10))
 
-    val bannable: Boolean = (relatedCheatersCount == relatedUsersCount) && relatedUsersCount >= 1
+    val bannable: Boolean = false
 
     def sigDif(dif: Int)(a: Option[Int], b: Option[Int]): Option[Boolean] =
       (a |@| b) apply { case (a, b) => b - a > dif }
@@ -74,8 +74,7 @@ case class PlayerAggregateAssessment(
       else if (reportable && exceptionalDif && cheatingSum >= 1) Engine
       else if (reportable) reportVariousReasons
       else Nothing
-    }
-    else {
+    } else {
       if (markable) reportVariousReasons
       else if (reportable) reportVariousReasons
       else Nothing
@@ -86,13 +85,10 @@ case class PlayerAggregateAssessment(
     _.assessment == assessment
   }
 
-  val relatedCheatersCount = relatedCheaters.size
-  val relatedUsersCount = relatedUsers.distinct.size
   val assessmentsCount = playerAssessments.size match {
     case 0 => 1
     case a => a
   }
-  val relationModifier = if (relatedUsersCount >= 1) 0.02 else 0
   val cheatingSum = countAssessmentValue(Cheating)
   val likelyCheatingSum = countAssessmentValue(LikelyCheating)
 
@@ -118,13 +114,11 @@ case class PlayerAggregateAssessment(
 
   def isNewRatedUser = user.count.rated < 10
 
-  def isWorthLookingAt = {
-    user.perfs.bestRating > 1600 && user.count.rated >= 2
-  } || user.perfs.bestProgress > 200
+  def isWorthLookingAt = user.count.rated >= 2
 
   def reportText(reason: String, maxGames: Int = 10): String = {
     val gameLinks: String = (playerAssessments.sortBy(-_.assessment.id).take(maxGames).map { a =>
-      a.assessment.emoticon + " //lichess.org/" + a.gameId + "/" + a.color.name
+      a.assessment.emoticon + " lichess.org/" + a.gameId + "/" + a.color.name
     }).mkString("\n")
 
     s"""[AUTOREPORT] $reason
@@ -142,13 +136,14 @@ object PlayerAggregateAssessment {
 }
 
 case class PlayerFlags(
-  suspiciousErrorRate: Boolean,
-  alwaysHasAdvantage: Boolean,
-  highBlurRate: Boolean,
-  moderateBlurRate: Boolean,
-  consistentMoveTimes: Boolean,
-  noFastMoves: Boolean,
-  suspiciousHoldAlert: Boolean
+    suspiciousErrorRate: Boolean,
+    alwaysHasAdvantage: Boolean,
+    highBlurRate: Boolean,
+    moderateBlurRate: Boolean,
+    highlyConsistentMoveTimes: Boolean,
+    moderatelyConsistentMoveTimes: Boolean,
+    noFastMoves: Boolean,
+    suspiciousHoldAlert: Boolean
 )
 
 object PlayerFlags {
@@ -163,7 +158,8 @@ object PlayerFlags {
       alwaysHasAdvantage = r boolD "aha",
       highBlurRate = r boolD "hbr",
       moderateBlurRate = r boolD "mbr",
-      consistentMoveTimes = r boolD "cmt",
+      highlyConsistentMoveTimes = r boolD "hcmt",
+      moderatelyConsistentMoveTimes = r boolD "cmt",
       noFastMoves = r boolD "nfm",
       suspiciousHoldAlert = r boolD "sha"
     )
@@ -173,7 +169,8 @@ object PlayerFlags {
       "aha" -> w.boolO(o.alwaysHasAdvantage),
       "hbr" -> w.boolO(o.highBlurRate),
       "mbr" -> w.boolO(o.moderateBlurRate),
-      "cmt" -> w.boolO(o.consistentMoveTimes),
+      "hcmt" -> w.boolO(o.highlyConsistentMoveTimes),
+      "cmt" -> w.boolO(o.moderatelyConsistentMoveTimes),
       "nfm" -> w.boolO(o.noFastMoves),
       "sha" -> w.boolO(o.suspiciousHoldAlert)
     )

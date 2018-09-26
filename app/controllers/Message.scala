@@ -37,34 +37,32 @@ object Message extends LilaController {
     NotForKids {
       negotiate(
         html = OptionFuOk(api.thread(id, me)) { thread =>
-        relationApi.fetchBlocks(thread otherUserId me, me.id) map { blocked =>
-          html.message.thread(thread, forms.post, blocked)
-        }
-      } map NoCache,
+          relationApi.fetchBlocks(thread otherUserId me, me.id) map { blocked =>
+            val form = !thread.isTooBig option forms.post
+            html.message.thread(thread, form, blocked)
+          }
+        } map NoCache,
         api = _ => JsonOptionFuOk(api.thread(id, me)) { thread => Env.message.jsonView.thread(thread) }
       )
     }
   }
 
   def answer(id: String) = AuthBody { implicit ctx => implicit me =>
-    negotiate(
-      html = OptionFuResult(api.thread(id, me)) { thread =>
-        implicit val req = ctx.body
-        forms.post.bindFromRequest.fold(
+    OptionFuResult(api.thread(id, me) map (_.filterNot(_.isTooBig))) { thread =>
+      implicit val req = ctx.body
+      negotiate(
+        html = forms.post.bindFromRequest.fold(
           err => relationApi.fetchBlocks(thread otherUserId me, me.id) map { blocked =>
-            BadRequest(html.message.thread(thread, err, blocked))
+            BadRequest(html.message.thread(thread, err.some, blocked))
           },
           text => api.makePost(thread, text, me) inject Redirect(routes.Message.thread(thread.id) + "#bottom")
-        )
-      },
-      api = _ => OptionFuResult(api.thread(id, me)) { thread =>
-        implicit val req = ctx.body
-        forms.post.bindFromRequest.fold(
+        ),
+        api = _ => forms.post.bindFromRequest.fold(
           err => fuccess(BadRequest(Json.obj("err" -> "Malformed request"))),
           text => api.makePost(thread, text, me) inject Ok(Json.obj("ok" -> true, "id" -> thread.id))
         )
-      }
-    )
+      )
+    }
   }
 
   def form = Auth { implicit ctx => implicit me =>
@@ -93,46 +91,47 @@ object Message extends LilaController {
 
   def create = AuthBody { implicit ctx => implicit me =>
     NotForKids {
-      import play.api.Play.current
-      import play.api.i18n.Messages.Implicits._
-      implicit val req = ctx.body
-      negotiate(
-        html = forms.thread(me).bindFromRequest.fold(
-          err => renderForm(me, none, _ => err) map { BadRequest(_) },
-          data => {
-            val cost =
-              if (isGranted(_.ModMessage)) 0
-              else if (!me.createdSinceDays(3)) 2
-              else 1
-            ThreadLimitPerUser(me.id, cost = cost) {
-              ThreadLimitPerIP(HTTPRequest lastRemoteAddress ctx.req, cost = cost) {
-                api.makeThread(data, me) map { thread =>
-                  if (thread.asMod) Env.mod.logApi.modMessage(thread.creatorId, thread.invitedId, thread.name)
-                  Redirect(routes.Message.thread(thread.id))
+      Env.chat.panic.allowed(me) ?? {
+        implicit val req = ctx.body
+        negotiate(
+          html = forms.thread(me).bindFromRequest.fold(
+            err => renderForm(me, none, _ => err) map { BadRequest(_) },
+            data => {
+              val cost =
+                if (isGranted(_.ModMessage)) 0
+                else if (!me.createdSinceDays(3)) 2
+                else 1
+              ThreadLimitPerUser(me.id, cost = cost) {
+                ThreadLimitPerIP(HTTPRequest lastRemoteAddress ctx.req, cost = cost) {
+                  api.makeThread(data, me) map { thread =>
+                    if (thread.asMod) Env.mod.logApi.modMessage(thread.creatorId, thread.invitedId, thread.name)
+                    Redirect(routes.Message.thread(thread.id))
+                  }
                 }
               }
             }
-          }
-        ),
-        api = _ => forms.thread(me).bindFromRequest.fold(
-          err => fuccess(BadRequest(errorsAsJson(err))),
-          data => api.makeThread(data, me) map { thread =>
-            Ok(Json.obj("ok" -> true, "id" -> thread.id))
-          }
+          ),
+          api = _ => forms.thread(me).bindFromRequest.fold(
+            jsonFormError,
+            data => api.makeThread(data, me) map { thread =>
+              Ok(Json.obj("ok" -> true, "id" -> thread.id))
+            }
+          )
         )
-      )
+      }
     }
   }
 
   private def renderForm(me: UserModel, title: Option[String], f: Form[_] => Form[_])(implicit ctx: Context): Fu[Html] =
     get("user") ?? UserRepo.named flatMap { user =>
-      user.fold(fuccess(true))(u => security.canMessage(me.id, u.id)) map { canMessage =>
+      user.fold(fuTrue)(u => security.canMessage(me.id, u.id)) map { canMessage =>
         html.message.form(
           f(forms thread me),
           reqUser = user,
           reqTitle = title,
           reqMod = getBool("mod"),
-          canMessage = canMessage || Granter(_.MessageAnyone)(me)
+          canMessage = canMessage || Granter(_.MessageAnyone)(me),
+          oldEnough = Env.chat.panic.allowed(me)
         )
       }
     }

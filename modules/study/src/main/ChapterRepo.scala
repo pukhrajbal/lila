@@ -1,5 +1,6 @@
 package lila.study
 
+import chess.format.pgn.Tags
 import reactivemongo.api.ReadPreference
 
 import lila.db.dsl._
@@ -8,16 +9,19 @@ final class ChapterRepo(coll: Coll) {
 
   import BSONHandlers._
 
-  val maxChapters = 64
-
   val noRootProjection = $doc("root" -> false)
 
   def byId(id: Chapter.Id): Fu[Option[Chapter]] = coll.byId[Chapter, Chapter.Id](id)
+
+  def studyIdOf(chapterId: Chapter.Id): Fu[Option[Study.Id]] =
+    coll.primitiveOne[Study.Id]($id(chapterId), "studyId")
 
   // def metadataById(id: Chapter.Id): Fu[Option[Chapter.Metadata]] =
   // coll.find($id(id), noRootProjection).one[Chapter.Metadata]
 
   def deleteByStudy(s: Study): Funit = coll.remove($studyId(s.id)).void
+
+  def deleteByStudyIds(ids: List[Study.Id]): Funit = coll.remove($doc("studyId" $in ids)).void
 
   def byIdAndStudy(id: Chapter.Id, studyId: Study.Id): Fu[Option[Chapter]] =
     coll.byId[Chapter, Chapter.Id](id).map { _.filter(_.studyId == studyId) }
@@ -29,14 +33,24 @@ final class ChapterRepo(coll: Coll) {
     coll.find(
       $studyId(studyId),
       noRootProjection
-    ).sort($sort asc "order").list[Chapter.Metadata](maxChapters)
+    ).sort($sort asc "order").list[Chapter.Metadata]()
 
   // loads all study chapters in memory! only used for search indexing and cloning
   def orderedByStudy(studyId: Study.Id): Fu[List[Chapter]] =
     coll.find($studyId(studyId))
       .sort($sort asc "order")
       .cursor[Chapter](readPreference = ReadPreference.secondaryPreferred)
-      .gather[List](maxChapters)
+      .gather[List]()
+
+  def relaysAndTagsByStudyId(studyId: Study.Id): Fu[List[Chapter.RelayAndTags]] =
+    coll.find($doc("studyId" -> studyId), $doc("relay" -> true, "tags" -> true)).list[Bdoc]() map { docs =>
+      for {
+        doc <- docs
+        id <- doc.getAs[Chapter.Id]("_id")
+        relay <- doc.getAs[Chapter.Relay]("relay")
+        tags <- doc.getAs[Tags]("tags")
+      } yield Chapter.RelayAndTags(id, relay, tags)
+    }
 
   def sort(study: Study, ids: List[Chapter.Id]): Funit = ids.zipWithIndex.map {
     case (id, index) =>
@@ -56,6 +70,12 @@ final class ChapterRepo(coll: Coll) {
   def removeConceal(chapterId: Chapter.Id) =
     coll.unsetField($id(chapterId), "conceal").void
 
+  def setRelay(chapterId: Chapter.Id, relay: Chapter.Relay) =
+    coll.updateField($id(chapterId), "relay", relay).void
+
+  def setRelayPath(chapterId: Chapter.Id, path: Path) =
+    coll.updateField($id(chapterId), "relay.path", path).void
+
   def setTagsFor(chapter: Chapter) =
     coll.updateField($id(chapter.id), "tags", chapter.tags).void
 
@@ -65,8 +85,17 @@ final class ChapterRepo(coll: Coll) {
   def setComments(chapter: Chapter, path: Path, comments: lila.tree.Node.Comments): Funit =
     setNodeValue(chapter, path, "co", comments.value.nonEmpty option comments)
 
+  def setGamebook(chapter: Chapter, path: Path, gamebook: lila.tree.Node.Gamebook): Funit =
+    setNodeValue(chapter, path, "ga", gamebook.nonEmpty option gamebook)
+
   def setGlyphs(chapter: Chapter, path: Path, glyphs: chess.format.pgn.Glyphs): Funit =
     setNodeValue(chapter, path, "g", glyphs.nonEmpty)
+
+  def setClock(chapter: Chapter, path: Path, clock: Option[chess.Centis]): Funit =
+    setNodeValue(chapter, path, "l", clock)
+
+  def setScore(chapter: Chapter, path: Path, score: Option[lila.tree.Eval.Score]): Funit =
+    setNodeValue(chapter, path, "e", score)
 
   def setChildren(chapter: Chapter, path: Path, children: Node.Children): Funit =
     setNodeValue(chapter, path, "n", children.some)
@@ -89,6 +118,16 @@ final class ChapterRepo(coll: Coll) {
       s"root.n.${indexes.mkString(".n.")}.$subField"
     }
 
+  private[study] def setChild(chapter: Chapter, path: Path, child: Node): Funit =
+    pathToField(chapter, path, "n") ?? { parentChildrenPath =>
+      coll.update(
+        $id(chapter.id) ++ $doc(s"$parentChildrenPath.i" -> child.id),
+        $set(s"$parentChildrenPath.$$" -> child)
+      ) flatMap { res =>
+          (res.n == 0) ?? coll.update($id(chapter.id), $push(parentChildrenPath -> child)).void
+        }
+    }
+
   private[study] def idNamesByStudyIds(studyIds: Seq[Study.Id]): Fu[Map[Study.Id, Vector[Chapter.IdName]]] =
     coll.find(
       $doc("studyId" $in studyIds),
@@ -108,6 +147,15 @@ final class ChapterRepo(coll: Coll) {
           } | hash
         }
       }
+
+  def startServerEval(chapter: Chapter) =
+    coll.updateField($id(chapter.id), "serverEval", Chapter.ServerEval(
+      path = chapter.root.mainlinePath,
+      done = false
+    )).void
+
+  def completeServerEval(chapter: Chapter) =
+    coll.updateField($id(chapter.id), "serverEval.done", true).void
 
   def countByStudyId(studyId: Study.Id): Fu[Int] =
     coll.countSel($studyId(studyId))

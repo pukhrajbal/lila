@@ -5,10 +5,12 @@ import play.api.data.Forms._
 import play.api.data.validation.Constraints
 
 import lila.common.{ LameName, EmailAddress }
-import lila.user.{ User, UserRepo }
+import lila.user.{ User, TotpSecret, UserRepo }
+import User.{ ClearPassword, TotpToken }
 
 final class DataForm(
     val captcher: akka.actor.ActorSelection,
+    authenticator: lila.user.Authenticator,
     emailValidator: EmailAddressValidator
 ) extends lila.hub.CaptchedForm {
 
@@ -17,52 +19,59 @@ final class DataForm(
   case class Empty(gameId: String, move: String)
 
   val empty = Form(mapping(
-    "gameId" -> nonEmptyText,
-    "move" -> nonEmptyText
+    "gameId" -> text,
+    "move" -> text
   )(Empty.apply)(_ => None)
     .verifying(captchaFailMessage, validateCaptcha _))
 
   def emptyWithCaptcha = withCaptcha(empty)
 
-  private val anyEmail = nonEmptyText.verifying(Constraints.emailAddress)
+  private val anyEmail = trimField(nonEmptyText).verifying(Constraints.emailAddress)
   private val acceptableEmail = anyEmail.verifying(emailValidator.acceptableConstraint)
   private def acceptableUniqueEmail(forUser: Option[User]) =
     acceptableEmail.verifying(emailValidator uniqueConstraint forUser)
 
+  private def trimField(m: Mapping[String]) = m.transform[String](_.trim, identity)
+
   object signup {
 
-    private val username = nonEmptyText.verifying(
+    private val username = trimField(nonEmptyText).verifying(
       Constraints minLength 2,
       Constraints maxLength 20,
       Constraints.pattern(
-        regex = User.usernameRegex,
-        error = "Invalid username. Please use only letters, numbers, underscore and dash"
+        regex = User.newUsernamePrefix,
+        error = "usernamePrefixInvalid"
       ),
       Constraints.pattern(
-        regex = """^[^\d].+$""".r,
-        error = "The username must not start with a number"
+        regex = User.newUsernameSuffix,
+        error = "usernameSuffixInvalid"
+      ),
+      Constraints.pattern(
+        regex = User.newUsernameChars,
+        error = "usernameCharsInvalid"
       )
-    ).verifying("This user already exists", u => !UserRepo.nameExists(u).awaitSeconds(4))
-      .verifying("This username is not acceptable", u => !LameName(u))
+    ).verifying("usernameUnacceptable", u => !LameName.username(u))
+      .verifying("usernameAlreadyUsed", u => !UserRepo.nameExists(u).awaitSeconds(4))
 
     val website = Form(mapping(
       "username" -> username,
       "password" -> text(minLength = 4),
       "email" -> acceptableUniqueEmail(none),
+      "fp" -> optional(nonEmptyText),
       "g-recaptcha-response" -> optional(nonEmptyText)
     )(SignupData.apply)(_ => None))
 
     val mobile = Form(mapping(
       "username" -> username,
       "password" -> text(minLength = 4),
-      "email" -> optional(acceptableUniqueEmail(none))
+      "email" -> acceptableUniqueEmail(none)
     )(MobileSignupData.apply)(_ => None))
   }
 
   val passwordReset = Form(mapping(
     "email" -> anyEmail, // allow unacceptable emails for BC
-    "gameId" -> nonEmptyText,
-    "move" -> nonEmptyText
+    "gameId" -> text,
+    "move" -> text
   )(PasswordReset.apply)(_ => None)
     .verifying(captchaFailMessage, validateCaptcha _))
 
@@ -84,10 +93,41 @@ final class DataForm(
       _.samePasswords
     ))
 
-  def changeEmail(user: User) = Form(mapping(
-    "email" -> acceptableUniqueEmail(user.some),
-    "passwd" -> nonEmptyText
-  )(ChangeEmail.apply)(ChangeEmail.unapply))
+  def changeEmail(u: User, old: Option[EmailAddress]) = authenticator loginCandidate u map { candidate =>
+    Form(mapping(
+      "passwd" -> nonEmptyText.verifying("incorrectPassword", p => candidate.check(ClearPassword(p))),
+      "email" -> acceptableUniqueEmail(candidate.user.some).verifying(emailValidator differentConstraint old)
+    )(ChangeEmail.apply)(ChangeEmail.unapply)).fill(ChangeEmail(
+      passwd = "",
+      email = old.??(_.value)
+    ))
+  }
+
+  def setupTwoFactor(u: User) = authenticator loginCandidate u map { candidate =>
+    Form(mapping(
+      "secret" -> nonEmptyText,
+      "passwd" -> nonEmptyText.verifying("incorrectPassword", p => candidate.check(ClearPassword(p))),
+      "token" -> nonEmptyText
+    )(TwoFactor.apply)(TwoFactor.unapply).verifying(
+        "invalidAuthenticationCode",
+        _.tokenValid
+      )).fill(TwoFactor(
+      secret = TotpSecret.random.base32,
+      passwd = "",
+      token = ""
+    ))
+  }
+
+  def disableTwoFactor(u: User) = authenticator loginCandidate u map { candidate =>
+    Form(tuple(
+      "passwd" -> nonEmptyText.verifying("incorrectPassword", p => candidate.check(ClearPassword(p))),
+      "token" -> nonEmptyText.verifying("invalidAuthenticationToken", t => u.totpSecret.??(_.verify(TotpToken(t))))
+    ))
+  }
+
+  def fixEmail(old: EmailAddress) = Form(
+    single("email" -> acceptableUniqueEmail(none).verifying(emailValidator differentConstraint old.some))
+  ).fill(old.value)
 
   def modEmail(user: User) = Form(single("email" -> acceptableUniqueEmail(user.some)))
 
@@ -100,19 +140,22 @@ object DataForm {
       username: String,
       password: String,
       email: String,
+      fp: Option[String],
       `g-recaptcha-response`: Option[String]
   ) {
     def recaptchaResponse = `g-recaptcha-response`
 
     def realEmail = EmailAddress(email)
+
+    def fingerPrint = fp.filter(_.nonEmpty) map FingerPrint.apply
   }
 
   case class MobileSignupData(
       username: String,
       password: String,
-      email: Option[String]
+      email: String
   ) {
-    def realEmail = email flatMap EmailAddress.from
+    def realEmail = EmailAddress(email)
   }
 
   case class PasswordReset(
@@ -123,7 +166,11 @@ object DataForm {
     def realEmail = EmailAddress(email)
   }
 
-  case class ChangeEmail(email: String, passwd: String) {
+  case class ChangeEmail(passwd: String, email: String) {
     def realEmail = EmailAddress(email)
+  }
+
+  case class TwoFactor(secret: String, passwd: String, token: String) {
+    def tokenValid = TotpSecret(secret).verify(User.TotpToken(token))
   }
 }

@@ -2,9 +2,6 @@ package lila.practice
 
 import akka.actor._
 import com.typesafe.config.Config
-import scala.concurrent.duration._
-
-import lila.common.PimpedConfig._
 
 final class Env(
     config: Config,
@@ -21,15 +18,13 @@ final class Env(
     coll = db(CollectionProgress),
     configStore = configStore[PracticeConfig]("practice", logger),
     asyncCache = asyncCache,
-    studyApi = studyApi
+    studyApi = studyApi,
+    bus = system.lilaBus
   )
 
-  system.lilaBus.subscribe(system.actorOf(Props(new Actor {
-    import lila.study.actorApi._
-    def receive = {
-      case SaveStudy(study) => api.structure onSave study
-    }
-  })), 'study)
+  system.lilaBus.subscribeFun('study) {
+    case lila.study.actorApi.SaveStudy(study) => api.structure onSave study
+  }
 }
 
 object Env {

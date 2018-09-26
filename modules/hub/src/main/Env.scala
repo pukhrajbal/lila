@@ -9,7 +9,6 @@ final class Env(config: Config, system: ActorSystem) {
     val gameSearch = select("actor.game.search")
     val renderer = select("actor.renderer")
     val captcher = select("actor.captcher")
-    val forum = select("actor.forum.actor")
     val forumSearch = select("actor.forum.search")
     val teamSearch = select("actor.team.search")
     val fishnet = select("actor.fishnet")
@@ -17,7 +16,6 @@ final class Env(config: Config, system: ActorSystem) {
     val simul = select("actor.simul")
     val timeline = select("actor.timeline.user")
     val bookmark = select("actor.bookmark")
-    val roundMap = select("actor.round.map")
     val lobby = select("actor.lobby")
     val relation = select("actor.relation")
     val report = select("actor.report")
@@ -27,12 +25,12 @@ final class Env(config: Config, system: ActorSystem) {
     val moveBroadcast = select("actor.move_broadcast")
     val userRegister = select("actor.user_register")
     val notification = select("actor.notify")
+    val study = select("actor.study")
   }
 
   object channel {
     val roundMoveTime = select("channel.round.move_time")
     val tvSelect = select("channel.tv.select")
-    val tournamentStanding = select("channel.tournament.standing")
   }
 
   object socket {

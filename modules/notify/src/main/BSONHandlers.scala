@@ -39,15 +39,16 @@ private object BSONHandlers {
   implicit val TeamNameHandler = stringAnyValHandler[TeamJoined.Name](_.value, TeamJoined.Name.apply)
   implicit val TeamJoinedHandler = Macros.handler[TeamJoined]
 
-  implicit val BlogIdHandler = stringAnyValHandler[NewBlogPost.Id](_.value, NewBlogPost.Id.apply)
-  implicit val BlogSlugHandler = stringAnyValHandler[NewBlogPost.Slug](_.value, NewBlogPost.Slug.apply)
-  implicit val BlogTitleHandler = stringAnyValHandler[NewBlogPost.Title](_.value, NewBlogPost.Title.apply)
-  implicit val NewBlogPostHandler = Macros.handler[NewBlogPost]
+  implicit val TeamMadeOwnerIdHandler = stringAnyValHandler[TeamMadeOwner.Id](_.value, TeamMadeOwner.Id.apply)
+  implicit val TeamMadeOwnerNameHandler = stringAnyValHandler[TeamMadeOwner.Name](_.value, TeamMadeOwner.Name.apply)
+  implicit val TeamMadeOwnerHandler = Macros.handler[TeamMadeOwner]
 
   implicit val GameEndGameIdHandler = stringAnyValHandler[GameEnd.GameId](_.value, GameEnd.GameId.apply)
   implicit val GameEndOpponentHandler = stringAnyValHandler[GameEnd.OpponentId](_.value, GameEnd.OpponentId.apply)
   implicit val GameEndWinHandler = booleanAnyValHandler[GameEnd.Win](_.value, GameEnd.Win.apply)
   implicit val GameEndHandler = Macros.handler[GameEnd]
+
+  implicit val TitledTournamentInvitationHandler = Macros.handler[TitledTournamentInvitation]
 
   implicit val PlanStartHandler = Macros.handler[PlanStart]
   implicit val PlanExpireHandler = Macros.handler[PlanExpire]
@@ -55,6 +56,7 @@ private object BSONHandlers {
   implicit val RatingRefundHandler = Macros.handler[RatingRefund]
   implicit val CorresAlarmHandler = Macros.handler[CorresAlarm]
   implicit val IrwinDoneHandler = Macros.handler[IrwinDone]
+  implicit val GenericLinkHandler = Macros.handler[GenericLink]
 
   implicit val ColorBSONHandler = new BSONHandler[BSONBoolean, chess.Color] {
     def read(b: BSONBoolean) = chess.Color(b.value)
@@ -72,8 +74,9 @@ private object BSONHandlers {
         case p: PrivateMessage => PrivateMessageHandler.write(p)
         case q: QaAnswer => QaAnswerHandler.write(q)
         case t: TeamJoined => TeamJoinedHandler.write(t)
-        case b: NewBlogPost => NewBlogPostHandler.write(b)
+        case o: TeamMadeOwner => TeamMadeOwnerHandler.write(o)
         case LimitedTournamentInvitation => $empty
+        case x: TitledTournamentInvitation => TitledTournamentInvitationHandler.write(x)
         case x: GameEnd => GameEndHandler.write(x)
         case x: PlanStart => PlanStartHandler.write(x)
         case x: PlanExpire => PlanExpireHandler.write(x)
@@ -82,6 +85,7 @@ private object BSONHandlers {
         case CoachReview => $empty
         case x: CorresAlarm => CorresAlarmHandler.write(x)
         case x: IrwinDone => IrwinDoneHandler.write(x)
+        case x: GenericLink => GenericLinkHandler.write(x)
       }
     } ++ $doc("type" -> notificationContent.key)
 
@@ -109,8 +113,9 @@ private object BSONHandlers {
       case "privateMessage" => PrivateMessageHandler read reader.doc
       case "qaAnswer" => QaAnswerHandler read reader.doc
       case "teamJoined" => TeamJoinedHandler read reader.doc
-      case "newBlogPost" => NewBlogPostHandler read reader.doc
+      case "teamMadeOwner" => TeamMadeOwnerHandler read reader.doc
       case "u" => LimitedTournamentInvitation
+      case "titledTourney" => TitledTournamentInvitationHandler read reader.doc
       case "gameEnd" => GameEndHandler read reader.doc
       case "planStart" => PlanStartHandler read reader.doc
       case "planExpire" => PlanExpireHandler read reader.doc
@@ -119,6 +124,7 @@ private object BSONHandlers {
       case "coachReview" => CoachReview
       case "corresAlarm" => CorresAlarmHandler read reader.doc
       case "irwinDone" => IrwinDoneHandler read reader.doc
+      case "genericLink" => GenericLinkHandler read reader.doc
     }
 
     def writes(writer: Writer, n: NotificationContent): dsl.Bdoc = writeNotificationContent(n)

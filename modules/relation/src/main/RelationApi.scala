@@ -1,12 +1,12 @@
 package lila.relation
 
-import akka.actor.ActorSelection
 import scala.concurrent.duration._
+import akka.actor.ActorSelection
 
 import lila.db.dsl._
 import lila.db.paginator._
 import lila.hub.actorApi.timeline.{ Propagate, Follow => FollowUser }
-import lila.user.{ User, UserRepo }
+import lila.user.User
 
 import BSONHandlers._
 import reactivemongo.api._
@@ -30,6 +30,7 @@ final class RelationApi(
   def fetchRelation(u1: ID, u2: ID): Fu[Option[Relation]] = (u1 != u2) ?? {
     coll.primitiveOne[Relation]($doc("u1" -> u1, "u2" -> u2), "r")
   }
+  def fetchRelation(u1: User, u2: User): Fu[Option[Relation]] = fetchRelation(u1.id, u2.id)
 
   def fetchFollowing = RelationRepo following _
 
@@ -37,7 +38,7 @@ final class RelationApi(
 
   def fetchBlocking = RelationRepo blocking _
 
-  def fetchFriends(userId: ID) = coll.aggregateWithReadPreference(Match($doc(
+  def fetchFriends(userId: ID) = coll.aggregateOne(Match($doc(
     "$or" -> $arr($doc("u1" -> userId), $doc("u2" -> userId)),
     "r" -> Follow
   )), List(
@@ -48,8 +49,8 @@ final class RelationApi(
     Project($id($doc("$setIntersection" -> $arr("$u1", "$u2"))))
   ),
     ReadPreference.secondaryPreferred).map {
-    ~_.firstBatch.headOption.flatMap(_.getAs[Set[String]]("_id")) - userId
-  }
+      ~_.flatMap(_.getAs[Set[String]]("_id")) - userId
+    }
 
   def fetchFollows(u1: ID, u2: ID): Fu[Boolean] = (u1 != u2) ?? {
     coll.exists($doc("_id" -> makeId(u1, u2), "r" -> Follow))
@@ -116,6 +117,7 @@ final class RelationApi(
           countFollowingCache.update(u1, 1+)
           reloadOnlineFriends(u1, u2)
           timeline ! Propagate(FollowUser(u1, u2)).toFriendsOf(u1).toUsers(List(u2))
+          bus.publish(lila.hub.actorApi.relation.Follow(u1, u2), 'relation)
           lila.mon.relation.follow()
         }
       }
@@ -170,7 +172,7 @@ final class RelationApi(
   def searchFollowedBy(u: User, term: String, max: Int): Fu[List[User.ID]] =
     RelationRepo.followingLike(u.id, term) map { _.sorted take max }
 
-  private def reloadOnlineFriends(u1: ID, u2: ID) {
+  private def reloadOnlineFriends(u1: ID, u2: ID): Unit = {
     import lila.hub.actorApi.relation.ReloadOnlineFriends
     List(u1, u2).foreach(actor ! ReloadOnlineFriends(_))
   }

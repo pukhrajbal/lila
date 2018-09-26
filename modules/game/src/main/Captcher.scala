@@ -4,9 +4,11 @@ import scala.concurrent.Future
 
 import akka.actor._
 import akka.pattern.pipe
+import chess.format.pgn.{ Tags, Sans }
 import chess.format.{ Forsyth, pgn }
 import chess.{ Game => ChessGame }
 import scalaz.{ NonEmptyList, OptionT }
+import scalaz.Validation.FlatMap._
 
 import lila.common.Captcha
 import lila.hub.actorApi.captcha._
@@ -44,7 +46,7 @@ private final class Captcher extends Actor {
     private val capacity = 512
     private var challenges: NonEmptyList[Captcha] = NonEmptyList(Captcha.default)
 
-    private def add(c: Captcha) {
+    private def add(c: Captcha): Unit = {
       find(c.gameId) ifNone {
         challenges = NonEmptyList.nel(c, challenges.list take capacity)
       }
@@ -53,21 +55,22 @@ private final class Captcher extends Actor {
     private def find(id: String): Option[Captcha] =
       challenges.list.find(_.gameId == id)
 
-    private def createFromDb: Fu[Option[Captcha]] =
+    private def createFromDb: Fu[Option[Captcha]] = {
       optionT(findCheckmateInDb(10) flatMap {
         _.fold(findCheckmateInDb(1))(g => fuccess(g.some))
       }) flatMap fromGame
+    }.run
 
     private def findCheckmateInDb(distribution: Int): Fu[Option[Game]] =
       GameRepo findRandomStandardCheckmate distribution
 
     private def getFromDb(id: String): Fu[Option[Captcha]] =
-      optionT(GameRepo game id) flatMap fromGame
+      optionT(GameRepo game id) flatMap fromGame run
 
     private def fromGame(game: Game): OptionT[Fu, Captcha] =
       optionT(GameRepo getOptionPgn game.id) flatMap { makeCaptcha(game, _) }
 
-    private def makeCaptcha(game: Game, moves: List[String]): OptionT[Fu, Captcha] =
+    private def makeCaptcha(game: Game, moves: PgnMoves): OptionT[Fu, Captcha] =
       optionT(Future {
         for {
           rewinded ← rewind(game, moves)
@@ -87,8 +90,12 @@ private final class Captcher extends Actor {
         s"${move.orig} ${move.dest}"
       } toNel
 
-    private def rewind(game: Game, moves: List[String]): Option[ChessGame] =
-      pgn.Reader.movesWithSans(moves, safeInit, tags = Nil) map (_.state) toOption
+    private def rewind(game: Game, moves: PgnMoves): Option[ChessGame] =
+      pgn.Reader.movesWithSans(
+        moves,
+        sans => Sans(safeInit(sans.value)),
+        tags = Tags.empty
+      ).flatMap(_.valid) map (_.state) toOption
 
     private def safeInit[A](list: List[A]): List[A] = list match {
       case x :: Nil => Nil

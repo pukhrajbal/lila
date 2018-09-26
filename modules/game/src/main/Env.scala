@@ -3,18 +3,17 @@ package lila.game
 import akka.actor._
 import com.typesafe.config.Config
 
-import lila.common.PimpedConfig._
-
 final class Env(
     config: Config,
     db: lila.db.Env,
     mongoCache: lila.memo.MongoCache.Builder,
     system: ActorSystem,
     hub: lila.hub.Env,
-    getLightUser: lila.common.LightUser.GetterSync,
+    getLightUser: lila.common.LightUser.Getter,
     appPath: String,
     isProd: Boolean,
     asyncCache: lila.memo.AsyncCache.Builder,
+    settingStore: lila.memo.SettingStore.Builder,
     scheduler: lila.common.Scheduler
 ) {
 
@@ -24,6 +23,7 @@ final class Env(
     val CaptcherDuration = config duration "captcher.duration"
     val CollectionGame = config getString "collection.game"
     val CollectionCrosstable = config getString "collection.crosstable"
+    val CollectionMatchup = config getString "collection.matchup"
     val UciMemoTtl = config duration "uci_memo.ttl"
     val netBaseUrl = config getString "net.base_url"
     val PngUrl = config getString "png.url"
@@ -46,7 +46,7 @@ final class Env(
   lazy val paginator = new PaginatorBuilder(
     coll = gameColl,
     cached = cached,
-    maxPerPage = PaginatorMaxPerPage
+    maxPerPage = lila.common.MaxPerPage(PaginatorMaxPerPage)
   )
 
   lazy val rewind = Rewind
@@ -60,6 +60,7 @@ final class Env(
 
   lazy val crosstableApi = new CrosstableApi(
     coll = db(CollectionCrosstable),
+    matchupColl = db(CollectionMatchup),
     gameColl = gameColl,
     asyncCache = asyncCache,
     system = system
@@ -69,9 +70,6 @@ final class Env(
 
   // load captcher actor
   private val captcher = system.actorOf(Props(new Captcher), name = CaptcherName)
-
-  val recentGoodGameActor = system.actorOf(Props[RecentGoodGame], name = "recent-good-game")
-  system.lilaBus.subscribe(recentGoodGameActor, 'finishGame)
 
   scheduler.message(CaptcherDuration) {
     captcher -> actorApi.NewCaptcha
@@ -89,7 +87,7 @@ final class Env(
     }
   }
 
-  lazy val stream = new GameStream(system)
+  lazy val gamesByUsersStream = new GamesByUsersStream(system)
 
   lazy val bestOpponents = new BestOpponents
 }
@@ -102,10 +100,11 @@ object Env {
     mongoCache = lila.memo.Env.current.mongoCache,
     system = lila.common.PlayApp.system,
     hub = lila.hub.Env.current,
-    getLightUser = lila.user.Env.current.lightUserSync,
+    getLightUser = lila.user.Env.current.lightUser,
     appPath = play.api.Play.current.path.getCanonicalPath,
     isProd = lila.common.PlayApp.isProd,
     asyncCache = lila.memo.Env.current.asyncCache,
+    settingStore = lila.memo.Env.current.settingStore,
     scheduler = lila.common.PlayApp.scheduler
   )
 }

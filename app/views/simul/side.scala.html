@@ -1,4 +1,4 @@
-@(sim: lila.simul.Simul)(implicit ctx: Context)
+@(sim: lila.simul.Simul, stream: Option[lila.streamer.Stream])(implicit ctx: Context)
 
 <div class="side_box padded">
   <div class="game_infos">
@@ -13,7 +13,14 @@
     </div>
     @trans.simulHostExtraTime(): @sim.clock.hostExtraMinutes @if(sim.clock.hostExtraMinutes == 1) { minute } else { minutes }
     <br />
-    Host color: @sim.color.getOrElse("random").capitalize
+    @trans.hostColorX(sim.color match {
+      case Some("white") => trans.white()
+      case Some("black") => trans.black()
+      case _ => trans.randomColor()
+    })
   </div>
-  @trans.by(usernameOrId(sim.hostId)), <span title="@showDateTime(sim.createdAt)">@momentFormat(sim.createdAt)</span>
+  @trans.by(usernameOrId(sim.hostId)), @momentFromNow(sim.createdAt)
 </div>
+@stream.map { s =>
+<a href="@routes.Streamer.show(s.streamer.userId)" class="context-streamer text side_box" data-icon="">@usernameOrId(s.streamer.userId) is streaming</a>
+}

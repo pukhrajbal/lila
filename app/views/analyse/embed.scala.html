@@ -1,11 +1,14 @@
 @(pov: Pov, data: play.api.libs.json.JsObject)(implicit ctx: Context)
 
-@title = @{ s"${playerText(pov.game.whitePlayer)} vs ${playerText(pov.game.blackPlayer)} in ${pov.gameId} : ${pov.game.opening.fold(trans.analysis.str())(_.opening.ecoName)}" }
+@title = @{ s"${playerText(pov.game.whitePlayer)} vs ${playerText(pov.game.blackPlayer)} in ${pov.gameId} : ${pov.game.opening.fold(trans.analysis.txt())(_.opening.ecoName)}" }
 
 <!doctype html>
-<html>
+<html lang="@lang.language">
   <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="@defaultCsp">
     <title>@title</title>
+    <link href="https://fonts.googleapis.com/css?family=Noto+Sans:400,700|Roboto:300" rel="stylesheet">
     @ctx.currentBg match {
     case "dark" => { @cssTag("dark.css") }
     case "transp" => { @cssTag("dark.css")@cssTag("transp.css") }
@@ -15,8 +18,7 @@
     @cssTag("board.css")
     @cssTag("analyse.css")
     @cssTag("analyse-embed.css")
-    <link id="piece-sprite" href="@staticUrl(s"stylesheets/piece/${ctx.currentPieceSet}.css?v=$ctx.pageData.assetVersion")" type="text/css" rel="stylesheet"/>
-    <meta charset="utf-8">
+    <link id="piece-sprite" href="@assetUrl(s"stylesheets/piece/${ctx.currentPieceSet}.css")" type="text/css" rel="stylesheet"/>
   </head>
   <body class="base highlight @List(
     ctx.currentTheme.cssClass,
@@ -36,15 +38,15 @@
     @jQueryTag
     @jsTag("vendor/mousetrap.js")
     @jsAt("compiled/util.js")
+    @jsAt("compiled/trans.js")
     @jsAt(s"compiled/lichess.analyse${isProd??(".min")}.js")
     @jsTag("embed-analyse.js")
     @embedJs {
     lichess.startEmbeddedAnalyse({
     element: document.querySelector('.embedded_analyse'),
-    data: @Html(J.stringify(data)),
+    data: @safeJson(data),
     embed: true,
-    i18n: @board.userAnalysisI18n(),
-    userId: "null"
+    i18n: @board.userAnalysisI18n(withCeval = false, withExplorer = false)
     });
     }
   </body>

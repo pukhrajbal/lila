@@ -1,93 +1,104 @@
 import { h } from 'snabbdom'
 import { VNode } from 'snabbdom/vnode'
 
-import { DasherCtrl, DasherData, Mode } from './dasher'
+import { DasherCtrl, Mode } from './dasher'
 import { view as pingView } from './ping'
 import { bind } from './util'
 
 export default function(ctrl: DasherCtrl): VNode {
 
-  const d = ctrl.data, trans = ctrl.trans;
+  const d = ctrl.data, trans = ctrl.trans, noarg = trans.noarg;
 
-  function userLinks(): Array<VNode | null> | null {
-    return d.user ? [
+  function userLinks(): VNode | null {
+    return d.user ? h('div.links', [
       h(
         'a.user_link.online.text.is-green',
         linkCfg(`/@/${d.user.name}`, d.user.patron ? '' : ''),
-        trans.noarg('profile')),
+        noarg('profile')),
 
       d.kid ? null : h(
         'a.text',
         linkCfg('/inbox', 'e'),
-        trans.noarg('inbox')),
+        noarg('inbox')),
 
       h(
         'a.text',
         linkCfg('/account/preferences/game-display', '%', ctrl.opts.playing ? {target: '_blank'} : undefined),
-        trans.noarg('preferences')),
+        noarg('preferences')),
 
       !d.coach ? null : h(
         'a.text',
         linkCfg('/coach/edit', ':'),
         'Coach manager'),
 
-      h(
+      !d.streamer ? null : h(
         'a.text',
-        linkCfg('/logout', 'w'),
-        trans.noarg('logOut'))
-    ] : null;
-  }
+        linkCfg('/streamer/edit', ''),
+        'Streamer manager'),
 
-  function anonLinks() {
-    return [
-      h('a.text',
-        linkCfg('/login', 'E'),
-        trans('signIn')),
-      h('a.text',
-        linkCfg('/signup', 'F'),
-        trans('signUp'))
-    ];
+      h('form', {
+        attrs: { method: 'post', action: '/logout' }
+      }, [
+        h('button.text', {
+          attrs: {
+            type: 'submit',
+            'data-icon': 'w'
+          }
+        }, noarg('logOut'))
+      ])
+    ]) : null;
   }
 
   const langs = h(
     'a.sub',
     modeCfg(ctrl, 'langs'),
-    'Language')
+    noarg('language'))
 
   const sound = h(
     'a.sub',
     modeCfg(ctrl, 'sound'),
-    trans.noarg('sound'))
+    noarg('sound'))
 
   const background = h(
     'a.sub',
     modeCfg(ctrl, 'background'),
-    'Background')
+    noarg('background'))
 
   const board = h(
     'a.sub',
     modeCfg(ctrl, 'board'),
-    'Board geometry')
+    noarg('boardGeometry'))
 
   const theme = h(
     'a.sub',
     modeCfg(ctrl, 'theme'),
-    'Board theme')
+    noarg('boardTheme'))
 
   const piece = h(
     'a.sub',
     modeCfg(ctrl, 'piece'),
-    'Piece set')
+    noarg('pieceSet'))
+
+  const zenToggle = ctrl.opts.playing ? h('div.zen.selector', [
+    h('a', {
+      attrs: {
+        'data-icon': 'K',
+        title: 'Keyboard: z'
+      },
+      hook: bind('click', ctrl.enableZen)
+    }, noarg('zenMode'))
+  ]) : null;
 
   return h('div', [
-    h('div.links', userLinks() || anonLinks()),
+    userLinks(),
     h('div.subs', [
       langs,
       sound,
       background,
       board,
       theme,
-      piece
+      piece,
+      zenToggle
     ]),
     pingView(ctrl.ping)
   ]);
@@ -96,7 +107,7 @@ export default function(ctrl: DasherCtrl): VNode {
 function linkCfg(href: string, icon: string, more: any = undefined): any {
   const cfg: any = {
     attrs: {
-      href: href,
+      href,
       'data-icon': icon
     }
   };

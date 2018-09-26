@@ -1,94 +1,102 @@
-import { AnalyseController } from './interfaces';
+import { h, thunk } from 'snabbdom'
+import { VNode, VNodeData } from 'snabbdom/vnode'
+import { MaybeVNode } from './interfaces';
+import AnalyseCtrl from './ctrl';
+import { findTag } from './study/studyChapters';
+import { game } from 'game';
+import { defined } from 'common';
+import { bind, dataIcon } from './util';
 
-import * as m from 'mithril';
-import { GameData, game } from 'game';
-
-function renderRatingDiff(rd: number): Mithril.Renderable {
-  if (rd === 0) return m('span.rp.null', '±0');
-  if (rd > 0) return m('span.rp.up', '+' + rd);
-  return m('span.rp.down', rd);
+function renderRatingDiff(rd: number | undefined): VNode | undefined {
+  if (rd === 0) return h('span.rp.null', '±0');
+  if (rd && rd > 0) return h('span.rp.up', '+' + rd);
+  if (rd && rd < 0) return h('span.rp.down', '−' + (-rd));
+  return;
 }
 
-function renderPlayer(data: GameData, color: Color): Mithril.Renderable {
-  var p = game.getPlayer(data, color);
-  if (p.name) return p.name;
-  if (p.ai) return 'Stockfish level ' + p.ai;
-  if (p.user) return m('a.user_link.ulpt', {
-    href: '/@/' + p.user.username
-  }, [p.user.username, renderRatingDiff(p.ratingDiff!)]);
-  return 'Anonymous';
+function renderPlayer(ctrl: AnalyseCtrl, color: Color): VNode {
+  const p = game.getPlayer(ctrl.data, color);
+  if (p.user) return h('a.user_link.ulpt', {
+    attrs: { href: '/@/' + p.user.username }
+  }, [
+    h('span', p.user.username),
+    renderRatingDiff(p.ratingDiff)
+  ]);
+  return h('span', 
+    p.name || 
+    (p.ai && 'Stockfish level ' + p.ai) || 
+    (ctrl.study && findTag(ctrl.study.data.chapter.tags, color)) || 
+    'Anonymous');
 }
 
-var advices = [
+const advices = [
   ['inaccuracy', 'inaccuracies', '?!'],
   ['mistake', 'mistakes', '?'],
   ['blunder', 'blunders', '??']
 ];
 
-function playerTable(ctrl: AnalyseController, color: Color): Mithril.Renderable {
-  var d = ctrl.data;
-  return m('table', [
-    m('thead', m('tr', [
-      m('td', m('i.is.color-icon.' + color)),
-      m('th', renderPlayer(d, color))
+function playerTable(ctrl: AnalyseCtrl, color: Color): VNode {
+  const d = ctrl.data, trans = ctrl.trans.noarg;
+  const acpl = d.analysis![color].acpl;
+  return h('table', {
+    hook: {
+      insert(vnode) {
+        window.lichess.powertip.manualUserIn(vnode.elm);
+      }
+    }
+  }, [
+    h('thead', h('tr', [
+      h('td', h('i.is.color-icon.' + color)),
+      h('th', renderPlayer(ctrl, color))
     ])),
-    m('tbody', [
-      advices.map(function(a) {
-        var nb: number = d.analysis![color][a[0]];
-        var attrs = nb ? {
-          class: 'symbol',
+    h('tbody',
+      advices.map(a => {
+        const nb: number = d.analysis![color][a[0]];
+        const attrs: VNodeData = nb ? {
           'data-color': color,
           'data-symbol': a[2]
         } : {};
-        return m('tr', attrs, [
-          m('td', nb),
-          m('th', ctrl.trans(a[1]))
+        return h('tr' + (nb ? '.symbol' : ''), { attrs }, [
+          h('td', '' + nb),
+          h('th', trans(a[1]))
         ]);
-      }),
-      m('tr', [
-        m('td', d.analysis![color].acpl),
-        m('th', ctrl.trans('averageCentipawnLoss'))
-      ])
-    ])
+      }).concat(
+        h('tr', [
+          h('td', '' + (defined(acpl) ? acpl : '?')),
+          h('th', trans('averageCentipawnLoss'))
+        ])
+      ))
   ])
 }
 
-var cached = false;
-
-export function uncache(): void {
-  cached = false;
-}
-
-export function render(ctrl: AnalyseController): Mithril.Renderable {
-  var d = ctrl.data;
-  if (!d.analysis) return;
-  if (!ctrl.vm.showComputer()) {
-    if (cached) cached = false;
-    return;
-  }
-
-  var first = ctrl.vm.mainline[0].eval || {};
-  if (first.cp || first.mate) {
-    if (cached) return {
-      subtree: 'retain'
-    };
-    else cached = true;
-  }
-
-  return m('div.advice_summary', {
-    config: function(el, isUpdate) {
-      if (!isUpdate)
-        $(el).on('click', 'tr.symbol', function(this: Element) {
+function doRender(ctrl: AnalyseCtrl): VNode {
+  return h('div.advice_summary', {
+    hook: {
+      insert: vnode => {
+        $(vnode.elm as HTMLElement).on('click', 'tr.symbol', function(this: Element) {
           ctrl.jumpToGlyphSymbol($(this).data('color'), $(this).data('symbol'));
         });
+      }
     }
   }, [
     playerTable(ctrl, 'white'),
-    m('a', {
-      class: 'button text' + (ctrl.retro ? ' active' : ''),
-      'data-icon': 'G',
-      onclick: ctrl.toggleRetro,
-    }, 'Learn from your mistakes'),
+    ctrl.study ? null : h('a.button.text', {
+      class: { active: !!ctrl.retro },
+      attrs: dataIcon('G'),
+      hook: bind('click', ctrl.toggleRetro, ctrl.redraw)
+    }, ctrl.trans.noarg('learnFromYourMistakes')),
     playerTable(ctrl, 'black')
   ]);
+}
+
+export function render(ctrl: AnalyseCtrl): MaybeVNode {
+
+  if (!ctrl.data.analysis || !ctrl.showComputer() || (ctrl.study && ctrl.study.vm.toolTab() !== 'serverEval')) return;
+
+  // don't cache until the analysis is complete!
+  const buster = ctrl.data.analysis.partial ? Math.random() : '';
+  let cacheKey = '' + buster + !!ctrl.retro;
+  if (ctrl.study) cacheKey += ctrl.study.data.chapter.id;
+
+  return thunk('div.advice_summary', doRender, [ctrl, cacheKey]);
 }

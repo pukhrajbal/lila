@@ -33,9 +33,9 @@ object JsonApi {
     sealed trait Result
 
     case class Fishnet(
-      version: Client.Version,
-      python: Option[Client.Python],
-      apikey: Client.Key
+        version: Client.Version,
+        python: Option[Client.Python],
+        apikey: Client.Key
     )
 
     sealed trait Engine {
@@ -45,8 +45,8 @@ object JsonApi {
     case class BaseEngine(name: String) extends Engine
 
     case class FullEngine(
-      name: String,
-      options: EngineOptions
+        name: String,
+        options: EngineOptions
     ) extends Engine
 
     case class EngineOptions(
@@ -58,14 +58,14 @@ object JsonApi {
     }
 
     case class Acquire(
-      fishnet: Fishnet,
-      stockfish: BaseEngine
+        fishnet: Fishnet,
+        stockfish: BaseEngine
     ) extends Request
 
     case class PostMove(
-      fishnet: Fishnet,
-      stockfish: BaseEngine,
-      move: MoveResult
+        fishnet: Fishnet,
+        stockfish: BaseEngine,
+        move: MoveResult
     ) extends Request with Result
 
     case class MoveResult(bestmove: String) {
@@ -75,7 +75,7 @@ object JsonApi {
     case class PostAnalysis(
         fishnet: Fishnet,
         stockfish: FullEngine,
-        analysis: List[Option[Evaluation]]
+        analysis: List[Option[Evaluation.OrSkipped]]
     ) extends Request with Result {
 
       def completeOrPartial =
@@ -86,39 +86,39 @@ object JsonApi {
     case class CompleteAnalysis(
         fishnet: Fishnet,
         stockfish: FullEngine,
-        analysis: List[Evaluation]
+        analysis: List[Evaluation.OrSkipped]
     ) {
 
-      def medianNodes = analysis
-        .filterNot(_.mateFound)
-        .filterNot(_.deadDraw)
-        .flatMap(_.nodes).toNel map Maths.median[Int]
+      def evaluations = analysis.collect { case Right(e) => e }
+
+      def medianNodes = Maths.median {
+        evaluations
+          .filterNot(_.mateFound)
+          .filterNot(_.deadDraw)
+          .flatMap(_.nodes)
+      }
 
       def strong = medianNodes.fold(true)(_ > Evaluation.acceptableNodes)
       def weak = !strong
     }
 
     case class PartialAnalysis(
-      fishnet: Fishnet,
-      stockfish: FullEngine,
-      analysis: List[Option[Evaluation]]
+        fishnet: Fishnet,
+        stockfish: FullEngine,
+        analysis: List[Option[Evaluation.OrSkipped]]
     )
 
     case class Evaluation(
-        pv: Option[String],
+        pv: List[Uci],
         score: Evaluation.Score,
         time: Option[Int],
         nodes: Option[Int],
         nps: Option[Int],
         depth: Option[Int]
     ) {
-
-      // use first pv move as bestmove
-      val pvList = pv.??(_.split(' ').toList)
-
       val cappedNps = nps.map(_ min Evaluation.npsCeil)
 
-      val cappedPvList = pvList take lila.analyse.Info.LineMaxPlies
+      val cappedPv = pv take lila.analyse.Info.LineMaxPlies
 
       def isCheckmate = score.mate has Mate(0)
       def mateFound = score.mate.isDefined
@@ -127,7 +127,14 @@ object JsonApi {
 
     object Evaluation {
 
-      case class Score(cp: Option[Cp], mate: Option[Mate])
+      object Skipped
+
+      type OrSkipped = Either[Skipped.type, Evaluation]
+
+      case class Score(cp: Option[Cp], mate: Option[Mate]) {
+        def invert = copy(cp.map(_.invert), mate.map(_.invert))
+        def invertIf(cond: Boolean) = if (cond) invert else this
+      }
 
       val npsCeil = 10 * 1000 * 1000
 
@@ -137,14 +144,14 @@ object JsonApi {
   }
 
   case class Game(
-    game_id: String,
-    position: FEN,
-    variant: Variant,
-    moves: String
+      game_id: String,
+      position: FEN,
+      variant: Variant,
+      moves: String
   )
 
   def fromGame(g: W.Game) = Game(
-    game_id = g.id,
+    game_id = if (g.studyId.isDefined) "" else g.id,
     position = g.initialFen | FEN(g.variant.initialFen),
     variant = g.variant,
     moves = g.moves
@@ -155,21 +162,27 @@ object JsonApi {
     val game: Game
   }
   case class Move(
-    id: String,
-    level: Int,
-    game: Game,
-    clock: Option[Work.Clock]
+      id: String,
+      level: Int,
+      game: Game,
+      clock: Option[Work.Clock]
   ) extends Work
 
   case class Analysis(
-    id: String,
-    game: Game,
-    nodes: Int
+      id: String,
+      game: Game,
+      nodes: Int,
+      skipPositions: List[Int]
   ) extends Work
 
   def moveFromWork(m: Work.Move) = Move(m.id.value, m.level, fromGame(m.game), m.clock)
 
-  def analysisFromWork(nodes: Int)(m: Work.Analysis) = Analysis(m.id.value, fromGame(m.game), nodes)
+  def analysisFromWork(nodes: Int)(m: Work.Analysis) = Analysis(
+    id = m.id.value,
+    game = fromGame(m.game),
+    nodes = nodes,
+    skipPositions = m.skipPositions
+  )
 
   object readers {
     import play.api.libs.functional.syntax._
@@ -184,17 +197,23 @@ object JsonApi {
     implicit val MoveResultReads = Json.reads[Request.MoveResult]
     implicit val PostMoveReads = Json.reads[Request.PostMove]
     implicit val ScoreReads = Json.reads[Request.Evaluation.Score]
+    implicit val uciListReads = Reads.of[String] map { str =>
+      ~Uci.readList(str)
+    }
+
     implicit val EvaluationReads: Reads[Request.Evaluation] = (
-      (__ \ "pv").readNullable[String] and
+      (__ \ "pv").readNullable[List[Uci]].map(~_) and
       (__ \ "score").read[Request.Evaluation.Score] and
       (__ \ "time").readNullable[Int] and
       (__ \ "nodes").readNullable[Long].map(Maths.toInt) and
       (__ \ "nps").readNullable[Long].map(Maths.toInt) and
       (__ \ "depth").readNullable[Int]
     )(Request.Evaluation.apply _)
-    implicit val EvaluationOptionReads = Reads[Option[Request.Evaluation]] {
+    implicit val EvaluationOptionReads = Reads[Option[Request.Evaluation.OrSkipped]] {
       case JsNull => JsSuccess(None)
-      case obj => EvaluationReads reads obj map some
+      case obj =>
+        if (~(obj boolean "skipped")) JsSuccess(Left(Request.Evaluation.Skipped).some)
+        else EvaluationReads reads obj map Right.apply map some
     }
     implicit val PostAnalysisReads: Reads[Request.PostAnalysis] = Json.reads[Request.PostAnalysis]
   }
@@ -209,7 +228,8 @@ object JsonApi {
       (work match {
         case a: Analysis => Json.obj(
           "work" -> Json.obj("type" -> "analysis", "id" -> a.id),
-          "nodes" -> a.nodes
+          "nodes" -> a.nodes,
+          "skipPositions" -> a.skipPositions
         )
         case m: Move => Json.obj(
           "work" -> Json.obj(

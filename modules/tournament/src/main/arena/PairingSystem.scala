@@ -24,10 +24,7 @@ private[tournament] object PairingSystem extends AbstractPairingSystem {
   def createPairings(tour: Tournament, users: WaitingUsers, ranking: Ranking): Fu[Pairings] = {
     for {
       lastOpponents <- PairingRepo.lastOpponents(tour.id, users.all, Math.min(120, users.size * 4))
-      onlyTwoActivePlayers <- (tour.nbPlayers > 20).fold(
-        fuccess(false),
-        PlayerRepo.countActive(tour.id).map(2==)
-      )
+      onlyTwoActivePlayers <- (tour.nbPlayers <= 20) ?? PlayerRepo.countActive(tour.id).map(2==)
       data = Data(tour, lastOpponents, ranking, onlyTwoActivePlayers)
       preps <- if (data.isFirstRound) evenOrAll(data, users)
       else makePreps(data, users.waiting) flatMap {
@@ -58,8 +55,7 @@ private[tournament] object PairingSystem extends AbstractPairingSystem {
         val groupSize = (idles.size / 4 * 2) atMost maxGroupSize
         smartPairings(data, idles take groupSize) :::
           smartPairings(data, idles drop groupSize take groupSize)
-      }
-      else if (idles.size > 1) smartPairings(data, idles)
+      } else if (idles.size > 1) smartPairings(data, idles)
       else Nil
     }
   }.chronometer.mon(_.tournament.pairing.prepTime).logIfSlow(200, pairingLogger) { preps =>
@@ -68,11 +64,9 @@ private[tournament] object PairingSystem extends AbstractPairingSystem {
 
   private def prepsToPairings(preps: List[Pairing.Prep]): Fu[List[Pairing]] =
     if (preps.size < 50) preps.map { prep =>
-      UserRepo.firstGetsWhite(prep.user1.some, prep.user2.some) map prep.toPairing
+      UserRepo.firstGetsWhite(prep.user1.some, prep.user2.some) flatMap prep.toPairing
     }.sequenceFu
-    else fuccess {
-      preps.map(_ toPairing Random.nextBoolean)
-    }
+    else preps.map(_ toPairing Random.nextBoolean).sequenceFu
 
   private def naivePairings(tour: Tournament, players: RankedPlayers): List[Pairing.Prep] =
     players grouped 2 collect {
@@ -88,16 +82,16 @@ private[tournament] object PairingSystem extends AbstractPairingSystem {
   private[arena] def url(tourId: String) = s"https://lichess.org/tournament/$tourId"
 
   /* Was previously static 1000.
-     * By increasing the factor for high ranked players,
-     * we increase pairing quality for them.
-     * The higher ranked, and the more ranking is relevant.
-     * For instance rank 1 vs rank 5
-     * is better thank 300 vs rank 310
-     * This should increase leader vs leader pairing chances
-     *
-     * top rank factor = 2000
-     * bottom rank factor = 300
-     */
+   * By increasing the factor for high ranked players,
+   * we increase pairing quality for them.
+   * The higher ranked, and the more ranking is relevant.
+   * For instance rank 1 vs rank 5
+   * is better thank 300 vs rank 310
+   * This should increase leader vs leader pairing chances
+   *
+   * top rank factor = 2000
+   * bottom rank factor = 300
+   */
   private[arena] def rankFactorFor(players: RankedPlayers): (RankedPlayer, RankedPlayer) => Int = {
     val maxRank = players.map(_.rank).max
     (a, b) => {

@@ -28,14 +28,15 @@
   "devDependencies": {
     "@types/jquery": "^2.0",
     "@types/nodeunit": "0.0.30",
+    "@types/lichess": "1.0.0",
+    "@types/defer-promise": "1.0.0",
     "nodeunit": "^0.11.0",
-    "types": "file:../types",
     "typescript": "^2"
   },
   "dependencies": {
-    "chess": "file:../chess",
-    "common": "file:../common",
+    "chess": "1.0.0",
+    "common": "1.0.0",
     "defer-promise": "^1.0.1",
-    "mithril": "github:ornicar/mithril.js#lila-vdom-only-2"
+    "snabbdom": "ornicar/snabbdom#0.7.1-lichess"
   }
 }

@@ -2,27 +2,13 @@ package lila.chat
 
 import lila.common.LightUser
 import lila.common.PimpedJson._
-import org.apache.commons.lang3.StringEscapeUtils.escapeHtml4
 import play.api.libs.json._
 
 object JsonView {
 
-  def apply(chat: AnyChat, mobileEscape: Boolean = false): JsValue = {
-    if (mobileEscape) escapeHtml(chat)
-    else chat
-  } match {
+  def apply(chat: AnyChat): JsValue = chat match {
     case c: MixedChat => mixedChatWriter writes c
     case c: UserChat => userChatWriter writes c
-  }
-
-  private def escapeHtml(chat: AnyChat) = chat match {
-    case c: MixedChat => c.mapLines {
-      case l: UserLine => l.copy(text = escapeHtml4(l.text))
-      case l: PlayerLine => l.copy(text = escapeHtml4(l.text))
-    }
-    case c: UserChat => c.mapLines { l =>
-      l.copy(text = escapeHtml4(l.text))
-    }
   }
 
   def apply(line: Line): JsValue = lineWriter writes line
@@ -31,6 +17,13 @@ object JsonView {
     lila.user.JsonView.modWrites.writes(u.user) ++ Json.obj(
       "history" -> u.history
     )
+
+  def mobile(chat: AnyChat, writeable: Boolean = true) = Json.obj(
+    "lines" -> apply(chat),
+    "writeable" -> writeable
+  )
+
+  implicit val chatIdWrites: Writes[Chat.Id] = stringIsoWriter(Chat.chatIdIso)
 
   lazy val timeoutReasons = Json toJson ChatTimeout.Reason.all
 
@@ -62,10 +55,8 @@ object JsonView {
   private implicit val userLineWriter = Writes[UserLine] { l =>
     Json.obj(
       "u" -> l.username,
-      "t" -> l.text,
-      "r" -> l.troll.option(true),
-      "d" -> l.deleted.option(true)
-    ).noNull
+      "t" -> l.text
+    ).add("r" -> l.troll).add("d" -> l.deleted)
   }
 
   private implicit val playerLineWriter = Writes[PlayerLine] { l =>

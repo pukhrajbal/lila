@@ -33,7 +33,7 @@ case class Entry(
 
 case object Entry {
 
-  def povToId(pov: Pov) = pov.game.id + pov.color.letter
+  def povToId(pov: Pov) = pov.gameId + pov.color.letter
 
   object BSONFields {
     val id = "_id"
@@ -59,15 +59,15 @@ case object Entry {
 }
 
 case class Move(
-  phase: Phase,
-  tenths: Int,
-  role: Role,
-  eval: Option[Int], // before the move was played, relative to player
-  mate: Option[Int], // before the move was played, relative to player
-  cpl: Option[Int], // eval diff caused by the move, relative to player, mate ~= 10
-  material: Int, // material imbalance, relative to player
-  opportunism: Option[Boolean],
-  luck: Option[Boolean]
+    phase: Phase,
+    tenths: Int,
+    role: Role,
+    eval: Option[Int], // before the move was played, relative to player
+    mate: Option[Int], // before the move was played, relative to player
+    cpl: Option[Int], // eval diff caused by the move, relative to player, mate ~= 10
+    material: Int, // material imbalance, relative to player
+    opportunism: Option[Boolean],
+    luck: Option[Boolean]
 )
 
 sealed abstract class Termination(val id: Int, val name: String)
@@ -132,7 +132,7 @@ object Castling {
   object None extends Castling(3, "No castling")
   val all = List(Kingside, Queenside, None)
   val byId = all map { p => (p.id, p) } toMap
-  def fromMoves(moves: List[String]) = moves.find(_ startsWith "O") match {
+  def fromMoves(moves: Traversable[String]) = moves.find(_ startsWith "O") match {
     case Some("O-O") => Kingside
     case Some("O-O-O") => Queenside
     case _ => None

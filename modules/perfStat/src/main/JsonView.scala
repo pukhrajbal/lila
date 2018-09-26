@@ -51,7 +51,7 @@ final class JsonView(getLightUser: LightUser.GetterSync) {
 
 object JsonView {
 
-  private def truncate(v: Double) = lila.common.Maths.truncateAt(v, 2)
+  private def round(v: Double, depth: Int = 2) = lila.common.Maths.roundAt(v, depth)
 
   private val isoFormatter = ISODateTimeFormat.dateTime
   private implicit val dateWriter: Writes[DateTime] = Writes { d =>
@@ -62,9 +62,8 @@ object JsonView {
   }
   implicit val glickoWriter: OWrites[Glicko] = OWrites { p =>
     Json.obj(
-      "rating" -> truncate(p.rating),
-      "deviation" -> truncate(p.deviation),
-      "volatility" -> truncate(p.volatility),
+      "rating" -> round(p.rating),
+      "deviation" -> round(p.deviation),
       "provisional" -> p.provisional
     )
   }
@@ -72,7 +71,7 @@ object JsonView {
     Json.obj("glicko" -> p.glicko, "nb" -> p.nb, "progress" -> p.progress)
   }
   private implicit val avgWriter: Writes[Avg] = Writes { a =>
-    JsNumber(truncate(a.avg))
+    JsNumber(round(a.avg))
   }
   implicit val perfTypeWriter: OWrites[PerfType] = OWrites { pt =>
     Json.obj(

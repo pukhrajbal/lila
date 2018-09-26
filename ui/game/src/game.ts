@@ -18,7 +18,7 @@ export function mandatory(data: GameData): boolean {
 }
 
 export function playedTurns(data: GameData): number {
-  return data.game.turns - data.game.startedAtTurn;
+  return data.game.turns - (data.game.startedAtTurn || 0);
 }
 
 export function bothPlayersHavePlayed(data: GameData): boolean {
@@ -59,7 +59,12 @@ export function berserkableBy(data: GameData): boolean {
 }
 
 export function moretimeable(data: GameData): boolean {
-  return !!data.clock && isPlayerPlaying(data) && !mandatory(data);
+  return isPlayerPlaying(data) && !mandatory(data) && (
+    !!data.clock ||
+    (!!data.correspondence &&
+      data.correspondence[data.opponent.color] < (data.correspondence.increment - 3600)
+    )
+  );
 }
 
 export function imported(data: GameData): boolean {
@@ -71,15 +76,15 @@ export function replayable(data: GameData): boolean {
     (status.aborted(data) && bothPlayersHavePlayed(data));
 }
 
-export function getPlayer(data: GameData, color: Color): Player;
+export function getPlayer(data: GameData, color: Color | undefined): Player;
 export function getPlayer(data: GameData, color?: Color): Player | null {
-  if (data.player.color == color) return data.player;
-  if (data.opponent.color == color) return data.opponent;
+  if (data.player.color === color) return data.player;
+  if (data.opponent.color === color) return data.opponent;
   return null;
 }
 
 export function hasAi(data: GameData): boolean {
-  return data.player.ai || data.opponent.ai;
+  return !!(data.player.ai || data.opponent.ai);
 }
 
 export function userAnalysable(data: GameData): boolean {
@@ -92,7 +97,7 @@ export function isCorrespondence(data: GameData): boolean {
 
 export function setOnGame(data: GameData, color: Color, onGame: boolean): void {
   var player = getPlayer(data, color);
-  onGame = onGame || player.ai;
+  onGame = onGame || !!player.ai;
   player.onGame = onGame;
   if (onGame) setIsGone(data, color, false);
 }

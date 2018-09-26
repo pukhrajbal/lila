@@ -1,8 +1,4 @@
-/// <reference types="types/lichess" />
-
-import throttle from './throttle';
-
-export function defined(v: any): boolean {
+export function defined<A>(v: A | undefined): v is A {
   return typeof v !== 'undefined';
 }
 
@@ -10,16 +6,19 @@ export function empty(a: any): boolean {
   return !a || a.length === 0;
 }
 
-export interface ClassSet {
-  [klass: string]: boolean;
+export interface Prop<T> {
+  (): T
+  (v: T): T
 }
 
-export function classSet(classes: ClassSet): string {
-  const arr = [];
-  for (const i in classes) {
-    if (classes[i]) arr.push(i);
-  }
-  return arr.join(' ');
+// like mithril prop but with type safety
+export function prop<A>(initialValue: A): Prop<A> {
+  let value = initialValue;
+  const fun = function(v: A | undefined) {
+    if (defined(v)) value = v;
+    return value;
+  };
+  return fun as Prop<A>;
 }
 
 export interface StoredProp<T> {
@@ -32,18 +31,20 @@ export interface StoredBooleanProp {
   (v: boolean): void;
 }
 
+const storage = window.lichess.storage;
+
 export function storedProp(k: string, defaultValue: boolean): StoredBooleanProp;
 export function storedProp<T>(k: string, defaultValue: T): StoredProp<T>;
 export function storedProp(k: string, defaultValue: any) {
   const sk = 'analyse.' + k;
   const isBoolean = defaultValue === true || defaultValue === false;
-  var value: any;
+  let value: any;
   return function(v: any) {
     if (defined(v) && v != value) {
       value = v + '';
-      window.lichess.storage.set(sk, v);
+      storage.set(sk, v);
     } else if (!defined(value)) {
-      value = window.lichess.storage.get(sk);
+      value = storage.get(sk);
       if (value === null) value = defaultValue + '';
     }
     return isBoolean ? value === 'true' : value;
@@ -55,31 +56,52 @@ export interface StoredJsonProp<T> {
   (v: T): void;
 }
 
-export function storedJsonProp<T>(keySuffix: string, defaultValue: T): StoredJsonProp<T> {
-  const key = 'explorer.' + keySuffix;
-  return function() {
-    if (arguments.length) window.lichess.storage.set(key, JSON.stringify(arguments[0]));
-    const ret = JSON.parse(window.lichess.storage.get(key));
+export function storedJsonProp<T>(key: string, defaultValue: T): StoredJsonProp<T> {
+  return function(v?: T) {
+    if (defined(v)) {
+      storage.set(key, JSON.stringify(v));
+      return v;
+    }
+    const ret = JSON.parse(storage.get(key));
     return (ret !== null) ? ret : defaultValue;
   };
 }
 
-export { throttle };
+export interface Sync<T> {
+  promise: Promise<T>;
+  sync: T | undefined;
+}
 
-export type F = () => void;
-
-export function dropThrottle(delay: number): (f: F) => void  {
-  var task: F | undefined;
-  const run = function(f: F) {
-    task = f;
-    f();
-    setTimeout(function() {
-      if (task !== f) run(task!);
-      else task = undefined;
-    }, delay);
+export function sync<T>(promise: Promise<T>): Sync<T> {
+  const sync: Sync<T> = {
+    sync: undefined,
+    promise: promise.then(v => {
+      sync.sync = v;
+      return v;
+    })
   };
-  return function(f) {
-    if (task) task = f;
-    else run(f);
+  return sync;
+}
+
+// Ensures calls to the wrapped function are spaced by the given delay.
+// Any extra calls are dropped, except the last one.
+export function throttle(delay: number, callback: (...args: any[]) => void): (...args: any[]) => void {
+  let timer: number | undefined;
+  let lastExec = 0;
+
+  return function(this: any, ...args: any[]): void {
+    const self: any = this;
+    const elapsed = Date.now() - lastExec;
+
+    function exec() {
+      timer = undefined;
+      lastExec = Date.now();
+      callback.apply(self, args);
+    }
+
+    if (timer) clearTimeout(timer);
+
+    if (elapsed > delay) exec();
+    else timer = setTimeout(exec, delay - elapsed);
   };
 }

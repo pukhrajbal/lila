@@ -1,6 +1,6 @@
 @()(implicit context: Context)
 
-@Html(toJson(i18nJsObject(
+@toJson(i18nJsObject(
 trans.training,
 trans.yourPuzzleRatingX,
 trans.goodMove,
@@ -12,7 +12,8 @@ trans.butYouCanKeepTrying,
 trans.yourTurn,
 trans.findTheBestMoveForBlack,
 trans.findTheBestMoveForWhite,
-trans.victory,
+trans.viewTheSolution,
+trans.success,
 trans.fromGameLink,
 trans.boardEditor,
 trans.continueFromHere,
@@ -34,4 +35,15 @@ trans.thisPuzzleIsWrong,
 trans.puzzles,
 trans.analysis,
 trans.rated,
-trans.casual)))
+trans.casual,
+// ceval
+trans.depthX,
+trans.usingServerAnalysis,
+trans.loadingEngine,
+trans.cloudAnalysis,
+trans.goDeeper,
+trans.showThreat,
+trans.gameOver,
+trans.inLocalBrowser,
+trans.toggleLocalEvaluation
+))

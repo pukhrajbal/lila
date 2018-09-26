@@ -1,22 +1,24 @@
 package lila.study
 
-import chess.Pos
 import chess.Centis
+import chess.Pos
 import lila.tree.Node.{ Shape, Shapes }
 
 private[study] object CommentParser {
 
-  private val circlesRegex = """(?s).*\[\%csl[\s\r\n]+((?:\w{3}[,\s]*)+)\].*""".r
+  private val circlesRegex = """(?s)\[\%csl[\s\r\n]+((?:\w{3}[,\s]*)+)\]""".r.unanchored
   private val circlesRemoveRegex = """\[\%csl[\s\r\n]+((?:\w{3}[,\s]*)+)\]""".r
-  private val arrowsRegex = """(?s).*\[\%cal[\s\r\n]+((?:\w{5}[,\s]*)+)\].*""".r
+  private val arrowsRegex = """(?s)\[\%cal[\s\r\n]+((?:\w{5}[,\s]*)+)\]""".r.unanchored
   private val arrowsRemoveRegex = """\[\%cal[\s\r\n]+((?:\w{5}[,\s]*)+)\]""".r
-  private val clockRegex = """(?s).*\[\%clk[\s\r\n]+([\d:]+)\].*""".r
-  private val clockRemoveRegex = """\[\%clk[\s\r\n]+[\d:]+\]""".r
+  private val clockRegex = """(?s)\[\%clk[\s\r\n]+([\d:\.]+)\]""".r.unanchored
+  private val clockRemoveRegex = """\[\%clk[\s\r\n]+[\d:\.]+\]""".r
+  private val tcecClockRegex = """(?s)tl=([\d:\.]+)""".r.unanchored
+  private val tcecClockRemoveRegex = """tl=[\d:\.]+""".r
 
   case class ParsedComment(
-    shapes: Shapes,
-    clock: Option[Centis],
-    comment: String
+      shapes: Shapes,
+      clock: Option[Centis],
+      comment: String
   )
 
   def apply(comment: String): ParsedComment =
@@ -28,18 +30,24 @@ private[study] object CommentParser {
 
   private type ClockAndComment = (Option[Centis], String)
 
-  private def readCentis(hours: String, minutes: String, seconds: String) = for {
+  private def readCentis(hours: String, minutes: String, seconds: String): Option[Centis] = for {
     h <- parseIntOption(hours)
     m <- parseIntOption(minutes)
     s <- parseIntOption(seconds)
   } yield Centis(h * 360000 + m * 6000 + s * 100)
 
+  private val clockHourMinuteRegex = """^(\d++):(\d+)$""".r
+  private val clockHourMinuteSecondRegex = """^(\d++):(\d++)[:\.](\d+)$""".r
+
+  def readCentis(str: String): Option[Centis] = str match {
+    case clockHourMinuteRegex(hours, minutes) => readCentis(hours, minutes, "0")
+    case clockHourMinuteSecondRegex(hours, minutes, seconds) => readCentis(hours, minutes, seconds)
+    case _ => none
+  }
+
   private def parseClock(comment: String): ClockAndComment = comment match {
-    case clockRegex(str) => (str.split(':') match {
-      case Array(minutes, seconds) => readCentis("0", minutes, seconds)
-      case Array(hours, minutes, seconds) => readCentis(hours, minutes, seconds)
-      case _ => none
-    }) -> clockRemoveRegex.replaceAllIn(comment, "").trim
+    case clockRegex(str) => readCentis(str) -> clockRemoveRegex.replaceAllIn(comment, "").trim
+    case tcecClockRegex(str) => readCentis(str) -> tcecClockRemoveRegex.replaceAllIn(comment, "").trim
     case _ => None -> comment
   }
 

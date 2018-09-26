@@ -19,8 +19,8 @@ case class HookConfig(
 
   def fixColor = copy(
     color = if (mode == Mode.Rated &&
-    lila.game.Game.variantsWhereWhiteIsBetter(variant) &&
-    color != Color.Random) Color.Random else color
+      lila.game.Game.variantsWhereWhiteIsBetter(variant) &&
+      color != Color.Random) Color.Random else color
   )
 
   def >> = (variant.id, timeMode.id, time, increment, days, mode.id.some, ratingRange.toString.some, color.name).some
@@ -33,7 +33,7 @@ case class HookConfig(
   }
 
   def hook(
-    uid: String,
+    uid: lila.socket.Socket.Uid,
     user: Option[User],
     sid: Option[String],
     blocking: Set[String]
@@ -44,7 +44,7 @@ case class HookConfig(
         uid = uid,
         variant = variant,
         clock = clock,
-        mode = lila.game.Game.allowRated(variant, clock).fold(mode, Mode.Casual),
+        mode = if (lila.game.Game.allowRated(variant, clock.some)) mode else Mode.Casual,
         color = color.name,
         user = user,
         blocking = blocking,

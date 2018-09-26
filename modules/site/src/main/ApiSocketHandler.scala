@@ -4,7 +4,6 @@ import actorApi._
 import lila.socket._
 import lila.socket.actorApi.StartWatching
 
-import lila.common.PimpedJson._
 import ornicar.scalalib.Random
 
 private[site] final class ApiSocketHandler(
@@ -21,7 +20,7 @@ private[site] final class ApiSocketHandler(
 
     def controller(member: SocketMember): Handler.Controller = {
       case ("startWatching", o) => o str "d" foreach { ids =>
-        hub.actor.moveBroadcast ! StartWatching(uid.value, member, ids.split(' ').toSet)
+        hub.actor.moveBroadcast ! StartWatching(uid, member, ids.split(' ').toSet)
       }
       case _ => // not available on API socket
     }

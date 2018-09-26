@@ -3,7 +3,6 @@ package lila.timeline
 import akka.actor._
 import org.joda.time.DateTime
 
-import lila.hub.actorApi.lobby.NewForumPost
 import lila.hub.actorApi.timeline.propagation._
 import lila.hub.actorApi.timeline.{ Propagate, Atom, ForumPost, ReloadTimeline }
 import lila.security.{ Granter, Permission }
@@ -14,17 +13,13 @@ private[timeline] final class Push(
     renderer: ActorSelection,
     getFriendIds: String => Fu[Set[String]],
     getFollowerIds: String => Fu[Set[String]],
-    entryRepo: EntryRepo,
+    entryApi: EntryApi,
     unsubApi: UnsubApi
 ) extends Actor {
 
   def receive = {
 
     case Propagate(data, propagations) =>
-      data match {
-        case _: ForumPost => lobbySocket ! NewForumPost
-        case _ =>
-      }
       propagate(propagations) flatMap { users =>
         unsubApi.filterUnsub(data.channel, users)
       } foreach { users =>
@@ -66,11 +61,9 @@ private[timeline] final class Push(
 
   private def makeEntry(users: List[String], data: Atom): Fu[Entry] = {
     val entry = Entry.make(data)
-    entryRepo.findRecent(entry.typ, DateTime.now minusMinutes 60, 1000) flatMap { entries =>
-      entries.exists(_ similarTo entry) fold (
-        fufail[Entry]("[timeline] a similar entry already exists"),
-        entryRepo insert Entry.ForUsers(entry, users) inject entry
-      )
+    entryApi.findRecent(entry.typ, DateTime.now minusMinutes 60, 1000) flatMap { entries =>
+      if (entries.exists(_ similarTo entry)) fufail[Entry]("[timeline] a similar entry already exists")
+      else entryApi insert Entry.ForUsers(entry, users) inject entry
     }
   }
 }

@@ -4,43 +4,46 @@ import org.specs2.mutable.Specification
 
 class LameNameTest extends Specification {
 
+  def test = LameName.username _
+
   "disallow" should {
     "separated titles" in {
-      LameName("fm-foo") must beTrue
-      LameName("fm_foo") must beTrue
-      LameName("wgm-foo") must beTrue
-      LameName("wcm_foo") must beTrue
+      test("fm-foo") must beTrue
+      test("fm_foo") must beTrue
+      test("wgm-foo") must beTrue
+      test("wcm_foo") must beTrue
+      test("gmFoobar") must beTrue
+      test("gm007") must beTrue
+      test("GmFoo") must beTrue
     }
     "uppercase titles" in {
-      LameName("GMfoo") must beTrue
-      LameName("IMfoo") must beTrue
-      LameName("WFMfoo") must beTrue
-      LameName("WIMfoo") must beTrue
-    }
-    "bad first letter" in {
-      LameName("_foo") must beTrue
-      LameName("-foo") must beTrue
+      test("GMfoo") must beTrue
+      test("IMfoo") must beTrue
+      test("WFMfoo") must beTrue
+      test("WIMfoo") must beTrue
+      test("1Mfoo") must beTrue
     }
     "gross" in {
-      LameName("douchebag") must beTrue
-      LameName("d0uchebag") must beTrue
-      LameName("urcunt-blah") must beTrue
-      LameName("urcuntblah") must beTrue
-    }
-    "number prefix" in {
-      LameName("000") must beTrue
-      LameName("0foo") must beTrue
+      test("Shit") must beTrue
+      test("Sh1t") must beTrue
+      test("douchebag") must beTrue
+      test("d0uchebag") must beTrue
+      test("urcunt-blah") must beTrue
+      test("urcuntblah") must beTrue
+      test("fuckster") must beTrue
+      test("fuuckster") must beTrue
     }
   }
   "allow" should {
     "good stuff" in {
-      LameName("joey") must beFalse
-      LameName("gmfoo") must beFalse
-      LameName("g-foo") must beFalse
-      LameName("g_foo") must beFalse
-      LameName("g-foo") must beFalse
-      LameName("agm-foo") must beFalse
-      LameName("atf90") must beFalse
+      test("joey") must beFalse
+      test("gmfoo") must beFalse
+      test("g-foo") must beFalse
+      test("g_foo") must beFalse
+      test("g-foo") must beFalse
+      test("agm-foo") must beFalse
+      test("atf90") must beFalse
+      test("a_b") must beFalse
     }
   }
 }

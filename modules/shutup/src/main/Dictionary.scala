@@ -8,9 +8,9 @@ package lila.shutup
 private object Dictionary {
 
   def en = dict("""
-(c|k)oc?k(y|suc?ker|)
-(c|k)um(shot|)
-(c|k)unt(ing|)
+[ck]oc?k(y|suc?ker|)
+[ck]um(shot|)
+[ck]unt(ing|)
 (f+|ph)(u{1,}|a{1,}|e{1,})c?k(er|r|u|k|ed|d|t|ing?|ign|en|tard?|face|off?|)
 fck(er|r|u|k|ed|d|t|ing?|ign|tard?|face|off?|)
 abortion
@@ -25,7 +25,7 @@ ball
 bastard?
 bewb
 bimbo
-bitche?
+bit?ch
 blow
 blowjob
 blumpkin
@@ -37,6 +37,7 @@ buk?kake
 bull?shit
 cancer
 cawk
+cheat(er|)
 chess(|-|_)bot(.?com)?
 chink
 choad
@@ -45,6 +46,7 @@ clitoris
 clown
 condom
 coon
+cock
 cooter
 cornhole
 coward?
@@ -56,6 +58,7 @@ dogg?ystyle
 dong
 douche(bag|)
 dyke
+engine
 (f|ph)ag
 (f|ph)agg?ot
 fanny
@@ -74,7 +77,6 @@ hitler+
 homm?o(sexual|)
 honkey
 hooker
-hore
 horny
 humping
 idiot
@@ -83,18 +85,18 @@ jerk
 jizz?(um|)
 kaffir
 kike
+kys
 labia
 lesbo
 masturbat(e|ion|ing)
 milf
 molest
 moron
-mother
+mothers?
 motherfuc?k(er|)
 mthrfckr
 muff
 nazi
-negro
 nigg?(er|a|ah)
 nonce
 nutsac?k
@@ -105,7 +107,7 @@ pecker
 pederast
 pen(1|i)s
 pig
-pimp
+pimps?
 piss
 poof
 poon
@@ -119,13 +121,13 @@ puss(i|y|ie|)
 queef
 queer
 quim
-raped?
+rape
 rapist
 rect(al|um)
-retard(ed|)
+retard
 rimjob
 schlong
-screw(d|ed|)
+screw
 scrotum
 scum(bag|)
 semen
@@ -146,11 +148,10 @@ spunk
 stfu
 stripper
 stupid
-suc?k
 taint
 tart
 terrorist
-tit(s|ies|ties|ty)(fuc?k)
+tit(|t?ies|ty)(fuc?k)
 tosser
 turd
 twat
@@ -160,7 +161,7 @@ vibrator
 vulva
 wanc?k(er|)
 wetback
-whore?
+w?hore?
 wog
 """)
 
@@ -168,8 +169,13 @@ wog
 сука
 пизда
 пидор
+пидераст
 pid(a|o)r
+Лох
+Сосать
 """)
 
   private def dict(words: String) = words.lines.filter(_.nonEmpty)
+
+  val youtubeIds = List("7UpltimWY_E", "J_bzfjZZnjU", "xRiQe_tq7h0", "8IlVvluRbwk", "P3o0hPjrxgo", "d8TSD4f89i8")
 }

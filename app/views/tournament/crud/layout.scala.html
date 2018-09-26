@@ -1,16 +1,17 @@
-@(title: String)(body: Html)(implicit ctx: Context)
+@(title: String, evenMoreJs: Html = emptyHtml)(body: Html)(implicit ctx: Context)
 
 @moreCss = {
-@cssAt("vendor/flatpickr/dist/flatpickr.min.css")
+@cssTag("flatpickr.css")
 @cssTag("material.form.css")
 @cssTag("tournament.crud.css")
 }
 
 @moreJs = {
-@jsAt("vendor/flatpickr/dist/flatpickr.min.js")
+@flatpickrTag
 @embedJs {
-$(".flatpickr").flatpickr();
+$(function() { $(".flatpickr").flatpickr(); })
 }
+@evenMoreJs
 }
 
 @mod.layout(

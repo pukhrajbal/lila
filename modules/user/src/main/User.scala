@@ -26,7 +26,10 @@ case class User(
     seenAt: Option[DateTime],
     kid: Boolean,
     lang: Option[String],
-    plan: Plan
+    plan: Plan,
+    reportban: Boolean = false,
+    rankban: Boolean = false,
+    totpSecret: Option[TotpSecret] = None
 ) extends Ordered[User] {
 
   override def equals(other: Any) = other match {
@@ -71,6 +74,8 @@ case class User(
     (nowMillis - s.getMillis).millis
   }
 
+  def everLoggedIn = seenAt.??(createdAt !=)
+
   def lame = booster || engine
 
   def lameOrTroll = lame || troll
@@ -81,16 +86,17 @@ case class User(
 
   def lightCount = User.LightCount(light, count.game)
 
-  private def best4Of(perfTypes: List[PerfType]) =
+  private def bestOf(perfTypes: List[PerfType], nb: Int) =
     perfTypes.sortBy { pt =>
-      -(perfs(pt).nb * PerfType.totalTimeRoughEstimation.get(pt).fold(0)(_.centis))
-    } take 4
+      -(perfs(pt).nb * PerfType.totalTimeRoughEstimation.get(pt).fold(0)(_.roundSeconds))
+    } take nb
 
-  private val firstRow = List(PerfType.Bullet, PerfType.Blitz, PerfType.Classical, PerfType.Correspondence)
-  private val secondRow = List(PerfType.UltraBullet, PerfType.Crazyhouse, PerfType.Chess960, PerfType.KingOfTheHill, PerfType.ThreeCheck, PerfType.Antichess, PerfType.Atomic, PerfType.Horde, PerfType.RacingKings)
+  private val firstRow: List[PerfType] = List(PerfType.Bullet, PerfType.Blitz, PerfType.Rapid, PerfType.Classical, PerfType.Correspondence)
+  private val secondRow: List[PerfType] = List(PerfType.UltraBullet, PerfType.Crazyhouse, PerfType.Chess960, PerfType.KingOfTheHill, PerfType.ThreeCheck, PerfType.Antichess, PerfType.Atomic, PerfType.Horde, PerfType.RacingKings)
 
-  def best8Perfs: List[PerfType] =
-    best4Of(firstRow) ::: best4Of(secondRow)
+  def best8Perfs: List[PerfType] = bestOf(firstRow, 4) ::: bestOf(secondRow, 4)
+
+  def best6Perfs: List[PerfType] = bestOf(firstRow ::: secondRow, 6)
 
   def hasEstablishedRating(pt: PerfType) = perfs(pt).established
 
@@ -101,20 +107,52 @@ case class User(
   def planMonths: Option[Int] = activePlan.map(_.months)
 
   def createdSinceDays(days: Int) = createdAt isBefore DateTime.now.minusDays(days)
+
+  def is(name: String) = id == User.normalize(name)
+
+  def isBot = title has User.botTitle
+  def noBot = !isBot
+
+  def rankable = noBot && !rankban
+
+  def addRole(role: String) = copy(roles = role :: roles)
 }
 
 object User {
 
   type ID = String
 
-  type CredentialCheck = String => Boolean
+  type CredentialCheck = ClearPassword => Boolean
   case class LoginCandidate(user: User, check: CredentialCheck) {
-    def apply(password: String): Option[User] = check(password) option user
+    import LoginCandidate._
+    def apply(p: PasswordAndToken): Result = {
+      val res =
+        if (check(p.password)) user.totpSecret.fold[Result](Success(user)) { tp =>
+          p.token.fold[Result](MissingTotpToken) { token =>
+            if (tp verify token) Success(user) else InvalidTotpToken
+          }
+        }
+        else InvalidUsernameOrPassword
+      lila.mon.user.auth.result(res.success)()
+      res
+    }
+    def option(p: PasswordAndToken): Option[User] = apply(p).toOption
+  }
+  object LoginCandidate {
+    sealed abstract class Result(val toOption: Option[User]) {
+      def success = toOption.isDefined
+    }
+    case class Success(user: User) extends Result(user.some)
+    case object InvalidUsernameOrPassword extends Result(none)
+    case object MissingTotpToken extends Result(none)
+    case object InvalidTotpToken extends Result(none)
   }
 
   val anonymous = "Anonymous"
+  val lichessId = "lichess"
 
-  val idPattern = """^[\w-]{3,20}$""".r.pattern
+  case class GDPRErase(user: User) extends AnyVal
+  case class Erased(value: Boolean) extends AnyVal
 
   case class LightPerf(user: LightUser, perfKey: String, rating: Int, progress: Int)
   case class LightCount(user: LightUser, count: Int)
@@ -122,6 +160,12 @@ object User {
   case class Active(user: User)
 
   case class Emails(current: Option[EmailAddress], previous: Option[EmailAddress])
+
+  case class ClearPassword(value: String) extends AnyVal {
+    override def toString = "ClearPassword(****)"
+  }
+  case class TotpToken(value: String) extends AnyVal
+  case class PasswordAndToken(password: ClearPassword, token: Option[TotpToken])
 
   case class PlayTime(total: Int, tv: Int) {
     import org.joda.time.Period
@@ -131,14 +175,18 @@ object User {
   }
   implicit def playTimeHandler = reactivemongo.bson.Macros.handler[PlayTime]
 
-  // Matches a lichess username with an '@' prefix if it is used as a single
-  // word (i.e. preceded and followed by space or appropriate punctuation):
-  // Yes: everyone says @ornicar is a pretty cool guy
-  // No: contact@lichess.org, @1, http://example.com/@happy0
-  val atUsernameRegex = """(?<=\s|^)@(?>([a-zA-Z_-][\w-]{1,19}))(?![\w-])""".r
+  // what existing usernames are like
+  val historicalUsernameRegex = """(?i)[a-z0-9][\w-]{0,28}[a-z0-9]""".r
+  // what new usernames should be like -- now split into further parts for clearer error messages
+  val newUsernameRegex = """(?i)[a-z][\w-]{0,28}[a-z0-9]""".r
 
-  val usernameRegex = """^[\w-]+$""".r
-  def couldBeUsername(str: String) = usernameRegex.pattern.matcher(str).matches
+  val newUsernamePrefix = """(?i)[a-z].*""".r
+
+  val newUsernameSuffix = """(?i).*[a-z0-9]""".r
+
+  val newUsernameChars = """(?i)[\w-]*""".r
+
+  def couldBeUsername(str: User.ID) = historicalUsernameRegex.matches(str)
 
   def normalize(username: String) = username.toLowerCase
 
@@ -153,8 +201,11 @@ object User {
     "CM" -> "Candidate Master",
     "WCM" -> "Woman Candidate Master",
     "WNM" -> "Woman National Master",
-    "LM" -> "Lichess Master"
+    "LM" -> "Lichess Master",
+    "BOT" -> "Chess Robot"
   )
+
+  val botTitle = LightUser.botTitle
 
   val titlesMap = titles.toMap
 
@@ -186,6 +237,12 @@ object User {
     val prevEmail = "prevEmail"
     val colorIt = "colorIt"
     val plan = "plan"
+    val reportban = "reportban"
+    val rankban = "rankban"
+    val salt = "salt"
+    val bpass = "bpass"
+    val sha512 = "sha512"
+    val totpSecret = "totp"
   }
 
   import lila.db.BSON
@@ -199,6 +256,7 @@ object User {
     private implicit def profileHandler = Profile.profileBSONHandler
     private implicit def perfsHandler = Perfs.perfsBSONHandler
     private implicit def planHandler = Plan.planBSONHandler
+    private implicit def totpSecretHandler = TotpSecret.totpSecretBSONHandler
 
     def reads(r: BSON.Reader): User = User(
       id = r str id,
@@ -219,7 +277,10 @@ object User {
       kid = r boolD kid,
       lang = r strO lang,
       title = r strO title,
-      plan = r.getO[Plan](plan) | Plan.empty
+      plan = r.getO[Plan](plan) | Plan.empty,
+      reportban = r boolD reportban,
+      rankban = r boolD rankban,
+      totpSecret = r.getO[TotpSecret](totpSecret)
     )
 
     def writes(w: BSON.Writer, o: User) = BSONDocument(
@@ -241,7 +302,10 @@ object User {
       kid -> w.boolO(o.kid),
       lang -> o.lang,
       title -> o.title,
-      plan -> o.plan.nonEmpty
+      plan -> o.plan.nonEmpty,
+      reportban -> w.boolO(o.reportban),
+      rankban -> w.boolO(o.rankban),
+      totpSecret -> o.totpSecret
     )
   }
 }

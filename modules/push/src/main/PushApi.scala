@@ -14,7 +14,6 @@ import lila.hub.actorApi.round.{ MoveEvent, IsOnGame }
 import lila.message.{ Thread, Post }
 
 private final class PushApi(
-    googlePush: GooglePush,
     oneSignalPush: OneSignalPush,
     implicit val lightUser: LightUser.GetterSync,
     roundSocketHub: ActorSelection,
@@ -41,8 +40,8 @@ private final class PushApi(
                 "gameId" -> game.id,
                 "fullId" -> pov.fullId,
                 "color" -> pov.color.name,
-                "fen" -> Forsyth.exportBoard(game.toChess.board),
-                "lastMove" -> game.castleLastMoveTime.lastMoveString,
+                "fen" -> Forsyth.exportBoard(game.board),
+                "lastMove" -> game.lastMoveKeys,
                 "win" -> pov.win
               )
             )
@@ -51,32 +50,70 @@ private final class PushApi(
       }
     }.sequenceFu.void
 
-  def move(move: MoveEvent): Funit = move.mobilePushable ?? {
-    scheduler.after(2 seconds) {
-      GameRepo game move.gameId flatMap {
-        _.filter(_.playable) ?? { game =>
-          val pov = Pov(game, game.player.color)
-          game.player.userId ?? { userId =>
+  def move(move: MoveEvent): Funit = scheduler.after(2 seconds) {
+    GameRepo game move.gameId flatMap {
+      _.filter(_.playable) ?? { game =>
+        val pov = Pov(game, game.player.color)
+        game.player.userId ?? { userId =>
+          IfAway(pov) {
+            game.pgnMoves.lastOption ?? { sanMove =>
+              pushToAll(userId, _.move, PushApi.Data(
+                title = "It's your turn!",
+                body = s"${opponentName(pov)} played $sanMove",
+                stacking = Stacking.GameMove,
+                payload = Json.obj(
+                  "userId" -> userId,
+                  "userData" -> corresGameJson(pov, "gameMove")
+                )
+              ))
+            }
+          }
+        }
+      }
+    }
+  }
+
+  def takebackOffer(gameId: Game.ID): Funit = scheduler.after(1 seconds) {
+    GameRepo game gameId flatMap {
+      _.filter(_.playable).?? { game =>
+        game.players.collectFirst {
+          case p if p.isProposingTakeback => Pov(game, game opponent p)
+        } ?? { pov => // the pov of the receiver
+          pov.player.userId ?? { userId =>
             IfAway(pov) {
-              game.pgnMoves.lastOption ?? { sanMove =>
-                pushToAll(userId, _.move, PushApi.Data(
-                  title = "It's your turn!",
-                  body = s"${opponentName(pov)} played $sanMove",
-                  stacking = Stacking.GameMove,
-                  payload = Json.obj(
-                    "userId" -> userId,
-                    "userData" -> Json.obj(
-                      "type" -> "gameMove",
-                      "gameId" -> game.id,
-                      "fullId" -> pov.fullId,
-                      "color" -> pov.color.name,
-                      "fen" -> Forsyth.exportBoard(game.toChess.board),
-                      "lastMove" -> game.castleLastMoveTime.lastMoveString,
-                      "secondsLeft" -> pov.remainingSeconds
-                    )
-                  )
-                ))
-              }
+              pushToAll(userId, _.takeback, PushApi.Data(
+                title = "Takeback offer",
+                body = s"${opponentName(pov)} proposes a takeback",
+                stacking = Stacking.GameTakebackOffer,
+                payload = Json.obj(
+                  "userId" -> userId,
+                  "userData" -> corresGameJson(pov, "gameTakebackOffer")
+                )
+              ))
+            }
+          }
+        }
+      }
+    }
+  }
+
+  def drawOffer(gameId: Game.ID): Funit = scheduler.after(1 seconds) {
+    GameRepo game gameId flatMap {
+      _.filter(_.playable).?? { game =>
+        game.players.collectFirst {
+          case p if p.isOfferingDraw => Pov(game, game opponent p)
+        } ?? { pov => // the pov of the receiver
+          pov.player.userId ?? { userId =>
+            IfAway(pov) {
+              pushToAll(userId, _.takeback, PushApi.Data(
+                title = "Draw offer",
+                body = s"${opponentName(pov)} offers a draw",
+                stacking = Stacking.GameDrawOffer,
+                payload = Json.obj(
+                  "userId" -> userId,
+                  "userData" -> corresGameJson(pov, "gameDrawOffer")
+                )
+              ))
             }
           }
         }
@@ -92,21 +129,23 @@ private final class PushApi(
         stacking = Stacking.GameMove,
         payload = Json.obj(
           "userId" -> userId,
-          "userData" -> Json.obj(
-            "type" -> "corresAlarm",
-            "gameId" -> pov.gameId,
-            "fullId" -> pov.fullId,
-            "color" -> pov.color.name,
-            "fen" -> Forsyth.exportBoard(pov.game.toChess.board),
-            "lastMove" -> pov.game.castleLastMoveTime.lastMoveString,
-            "secondsLeft" -> pov.remainingSeconds
-          )
+          "userData" -> corresGameJson(pov, "corresAlarm")
         )
       ))
     }
 
+  private def corresGameJson(pov: Pov, typ: String) = Json.obj(
+    "type" -> typ,
+    "gameId" -> pov.gameId,
+    "fullId" -> pov.fullId,
+    "color" -> pov.color.name,
+    "fen" -> Forsyth.exportBoard(pov.game.board),
+    "lastMove" -> pov.game.lastMoveKeys,
+    "secondsLeft" -> pov.remainingSeconds
+  )
+
   def newMessage(t: Thread, p: Post): Funit =
-    lightUser(t.senderOf(p)) ?? { sender =>
+    lightUser(t.visibleSenderOf(p)) ?? { sender =>
       pushToAll(t.receiverOf(p), _.message, PushApi.Data(
         title = s"${sender.titleName}: ${t.name}",
         body = p.text take 140,
@@ -161,16 +200,11 @@ private final class PushApi(
 
   private type MonitorType = lila.mon.push.send.type => (String => Unit)
 
-  private def pushToAll(userId: String, monitor: MonitorType, data: PushApi.Data) = {
+  private def pushToAll(userId: String, monitor: MonitorType, data: PushApi.Data): Funit =
     oneSignalPush(userId) {
       monitor(lila.mon.push.send)("onesignal")
       data
     }
-    googlePush(userId) {
-      monitor(lila.mon.push.send)("android")
-      data
-    }
-  }
 
   private def describeChallenge(c: Challenge) = {
     import lila.challenge.Challenge.TimeControl._
@@ -193,7 +227,7 @@ private final class PushApi(
     }
   }
 
-  private def opponentName(pov: Pov) = Namer playerString pov.opponent
+  private def opponentName(pov: Pov) = Namer playerText pov.opponent
 
   private implicit val lightUserWriter: OWrites[LightUser] = OWrites { u =>
     Json.obj(
@@ -207,9 +241,9 @@ private final class PushApi(
 private object PushApi {
 
   case class Data(
-    title: String,
-    body: String,
-    stacking: Stacking,
-    payload: JsObject
+      title: String,
+      body: String,
+      stacking: Stacking,
+      payload: JsObject
   )
 }

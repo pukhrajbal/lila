@@ -10,7 +10,8 @@ case class SimulPairing(
     hostColor: chess.Color
 ) {
 
-  def finished = status >= chess.Status.Mate
+  def finished = status >= chess.Status.Aborted
+  def ongoing = !finished
 
   def is(userId: String): Boolean = player is userId
   def is(other: SimulPlayer): Boolean = player is other
@@ -29,7 +30,7 @@ private[simul] object SimulPairing {
 
   def apply(player: SimulPlayer): SimulPairing = new SimulPairing(
     player = player,
-    gameId = IdGenerator.game,
+    gameId = IdGenerator.uncheckedGame,
     status = chess.Status.Created,
     wins = none,
     hostColor = chess.White

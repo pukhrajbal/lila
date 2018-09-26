@@ -2,6 +2,7 @@ package lila.shutup
 
 case class UserRecord(
     _id: String,
+    /* pub: Option[List[PublicLine]], intentionally not mapped to DB */
     puf: Option[List[Double]],
     tef: Option[List[Double]],
     prm: Option[List[Double]],
@@ -30,12 +31,14 @@ case class TextAnalysis(
   def nbBadWords = badWords.size
 
   def ratio: Double = if (nbWords == 0) 0 else nbBadWords.toDouble / nbWords
+
+  def dirty = ratio > 0
 }
 
 sealed abstract class TextType(
-  val key: String,
-  val rotation: Int,
-  val name: String
+    val key: String,
+    val rotation: Int,
+    val name: String
 )
 
 object TextType {

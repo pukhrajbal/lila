@@ -6,8 +6,15 @@ import chess.variant.Variant
 import play.api.libs.json._
 import scalaz.Validation.FlatMap._
 
-import lila.common.PimpedJson._
 import lila.tree.Branch
+
+trait AnaAny {
+
+  def branch: Valid[Branch]
+  def json(b: Branch): JsObject
+  def chapterId: Option[String]
+  def path: String
+}
 
 case class AnaMove(
     orig: chess.Pos,
@@ -16,9 +23,8 @@ case class AnaMove(
     fen: String,
     path: String,
     chapterId: Option[String],
-    promotion: Option[chess.PromotableRole],
-    unsync: Boolean
-) {
+    promotion: Option[chess.PromotableRole]
+) extends AnaAny {
 
   def branch: Valid[Branch] =
     chess.Game(variant.some, fen.some)(orig, dest, promotion) flatMap {
@@ -36,7 +42,7 @@ case class AnaMove(
           opening = (game.turns <= 30 && Variant.openingSensibleVariants(variant)) ?? {
             FullOpeningDB findByFen fen
           },
-          drops = movable.fold(game.situation.drops, Some(Nil)),
+          drops = if (movable) game.situation.drops else Some(Nil),
           crazyData = game.situation.board.crazyData
         )
       }
@@ -54,17 +60,15 @@ object AnaMove {
     d ← o obj "d"
     orig ← d str "orig" flatMap chess.Pos.posAt
     dest ← d str "dest" flatMap chess.Pos.posAt
-    variant = chess.variant.Variant orDefault ~d.str("variant")
     fen ← d str "fen"
     path ← d str "path"
   } yield AnaMove(
     orig = orig,
     dest = dest,
-    variant = variant,
+    variant = chess.variant.Variant orDefault ~d.str("variant"),
     fen = fen,
     path = path,
     chapterId = d str "ch",
-    promotion = d str "promotion" flatMap chess.Role.promotable,
-    unsync = ~(d boolean "unsync")
+    promotion = d str "promotion" flatMap chess.Role.promotable
   )
 }

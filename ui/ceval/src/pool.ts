@@ -1,3 +1,4 @@
+import { sync, Sync } from 'common';
 import { PoolOpts, WorkerOpts, Work } from './types';
 import Protocol from './stockfishProtocol';
 
@@ -5,34 +6,42 @@ export abstract class AbstractWorker {
   protected url: string;
   protected poolOpts: PoolOpts;
   protected workerOpts: WorkerOpts;
-  protected protocol?: Protocol;
+  protected protocol: Sync<Protocol>;
 
   constructor(url: string, poolOpts: PoolOpts, workerOpts: WorkerOpts) {
     this.url = url;
     this.poolOpts = poolOpts;
     this.workerOpts = workerOpts;
-    this.boot();
+    this.protocol = sync(this.boot());
   }
 
   stop(): Promise<void> {
-    return this.protocol ? this.protocol.stop() : Promise.resolve();
+    return this.protocol.promise.then(protocol => protocol.stop());
   }
 
   start(work: Work) {
-    const timeout = new Promise((_resolve, reject) => {
-      setTimeout(reject, 1000);
-    });
-
-    Promise.race([this.stop(), timeout]).catch(() => {
-      this.destroy();
-      this.boot();
-      return Promise.resolve();
-    }).then(() => {
-      if (this.protocol) this.protocol.start(work);
+    // wait for boot
+    this.protocol.promise.then(protocol => {
+      const timeout = new Promise((_, reject) => setTimeout(reject, 1000));
+      Promise.race([protocol.stop(), timeout]).catch(() => {
+        // reboot if not stopped after 1s
+        this.destroy();
+        this.protocol = sync(this.boot());
+      }).then(() => {
+        this.protocol.promise.then(protocol => protocol.start(work));
+      });
     });
   }
 
-  abstract boot(): void;
+  isComputing(): boolean {
+    return !!this.protocol.sync && this.protocol.sync.isComputing();
+  }
+
+  engineName(): string | undefined {
+    return this.protocol.sync && this.protocol.sync.engineName;
+  }
+
+  abstract boot(): Promise<Protocol>;
   abstract send(cmd: string): void;
   abstract destroy(): void;
 }
@@ -40,13 +49,13 @@ export abstract class AbstractWorker {
 class WebWorker extends AbstractWorker {
   worker: Worker;
 
-  boot() {
-    console.log('booting webworker', this.url);
+  boot(): Promise<Protocol> {
     this.worker = new Worker(this.url);
-    this.protocol = new Protocol(this.send.bind(this), this.workerOpts);
+    const protocol = new Protocol(this.send.bind(this), this.workerOpts);
     this.worker.addEventListener('message', e => {
-      this.protocol!.received(e.data);
+      protocol.received(e.data);
     }, true);
+    return Promise.resolve(protocol);
   }
 
   destroy() {
@@ -59,36 +68,51 @@ class WebWorker extends AbstractWorker {
 }
 
 class PNaClWorker extends AbstractWorker {
-  private worker?: HTMLEmbedElement;
+  private listener?: HTMLElement;
+  private worker?: HTMLObjectElement;
 
-  boot() {
-    console.log('booting pnacl worker');
-    try {
-      this.worker = document.createElement('embed');
-      this.worker.setAttribute('src', this.url);
-      this.worker.setAttribute('type', 'application/x-pnacl');
-      this.worker.setAttribute('width', '0');
-      this.worker.setAttribute('height', '0');
-      ['crash', 'error'].forEach(eventType => {
-        this.worker!.addEventListener(eventType, () => {
-          this.poolOpts.onCrash((this.worker as any).lastError);
+  boot(): Promise<Protocol> {
+    return new Promise((resolve, reject) => {
+      try {
+        // Use a listener div to ensure listeners are active before the
+        // load event fires.
+        this.listener = document.createElement('div');
+        this.listener.addEventListener('load', () => {
+          resolve(new Protocol(this.send.bind(this), this.workerOpts));
         }, true);
-      });
-      document.body.appendChild(this.worker);
-      this.protocol = new Protocol(this.send.bind(this), this.workerOpts);
-      this.worker.addEventListener('message', e => {
-        this.protocol!.received((e as any).data);
-      }, true);
-    } catch (err) {
-      console.log('exception while booting pnacl', err);
-      this.destroy();
-      this.poolOpts.onCrash(err);
-    }
+        this.listener.addEventListener('error', e => {
+          this.poolOpts.onCrash(e);
+          reject(e);
+        }, true);
+        this.listener.addEventListener('message', e => {
+          if (this.protocol.sync) this.protocol.sync.received((e as any).data);
+        }, true);
+        this.listener.addEventListener('crash', e => {
+          const err = this.worker ? (this.worker as any).lastError : e;
+          this.poolOpts.onCrash(err);
+        }, true);
+        document.body.appendChild(this.listener);
+
+        this.worker = document.createElement('object');
+        this.worker.width = '0';
+        this.worker.height = '0';
+        this.worker.data = this.url;
+        this.worker.type = 'application/x-pnacl';
+        this.listener.appendChild(this.worker);
+      } catch (err) {
+        console.log('exception while booting pnacl', err);
+        this.destroy();
+        this.poolOpts.onCrash(err);
+        reject(err);
+      }
+    });
   }
 
   destroy() {
     if (this.worker) this.worker.remove();
     delete this.worker;
+    if (this.listener) this.listener.remove();
+    delete this.listener;
   }
 
   send(cmd: string) {
@@ -111,8 +135,8 @@ export default class Pool {
     this.warmup();
 
     // briefly wait and give a chance to reuse the current worker
-    let worker = new Promise((resolve, reject) => {
-      var currentWorker = this.workers[this.token];
+    let worker = new Promise<AbstractWorker>((resolve, reject) => {
+      const currentWorker = this.workers[this.token];
       currentWorker.stop().then(() => resolve(currentWorker));
       setTimeout(() => reject(), 50);
     });
@@ -143,9 +167,17 @@ export default class Pool {
   }
 
   start(work: Work) {
-    window.lichess.storage.set('ceval.pool.start', '1');
+    window.lichess.storage.set('ceval.pool.start', Date.now().toString());
     this.getWorker().then(function(worker) {
       worker.start(work);
     });
+  }
+
+  isComputing(): boolean {
+    return !!this.workers.length && this.workers[this.token].isComputing();
+  }
+
+  engineName(): string | undefined {
+    return this.workers[this.token] && this.workers[this.token].engineName();
   }
 }

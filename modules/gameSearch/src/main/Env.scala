@@ -3,6 +3,7 @@ package lila.gameSearch
 import akka.actor._
 import com.typesafe.config.Config
 
+import lila.game.actorApi.{ InsertGame, FinishGame }
 import lila.search._
 
 final class Env(
@@ -17,11 +18,11 @@ final class Env(
 
   private lazy val client = makeClient(Index(IndexName))
 
-  lazy val api = new GameSearchApi(client)
+  lazy val api = new GameSearchApi(client, system)
 
   lazy val paginator = new PaginatorBuilder[lila.game.Game, Query](
     searchApi = api,
-    maxPerPage = PaginatorMaxPerPage
+    maxPerPage = lila.common.MaxPerPage(PaginatorMaxPerPage)
   )
 
   lazy val forms = new DataForm
@@ -31,19 +32,9 @@ final class Env(
     paginator = paginator
   )
 
-  system.lilaBus.subscribe(system.actorOf(Props(new Actor {
-    import lila.game.actorApi.{ InsertGame, FinishGame }
-    def receive = {
-      case FinishGame(game, _, _) if !game.aborted => self ! InsertGame(game)
-      case InsertGame(game) => api store game
-    }
-  }), name = ActorName), 'finishGame)
-
-  def cli = new lila.common.Cli {
-    def process = {
-      case "game" :: "search" :: "index" :: "all" :: Nil => api.indexAll inject "done"
-      case "game" :: "search" :: "index" :: since :: Nil => api.indexSince(since) inject "done"
-    }
+  system.lilaBus.subscribeFun('finishGame) {
+    case FinishGame(game, _, _) if !game.aborted => api store game
+    case InsertGame(game) => api store game
   }
 }
 

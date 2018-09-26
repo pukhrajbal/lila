@@ -1,6 +1,7 @@
 package lila.insight
 
 import chess.{ Role, Board }
+import chess.format.FEN
 import lila.analyse.{ Accuracy, Advice }
 import lila.game.{ Game, Pov, GameRepo }
 import scalaz.NonEmptyList
@@ -10,15 +11,15 @@ object PovToEntry {
   private type Ply = Int
 
   case class RichPov(
-    pov: Pov,
-    provisional: Boolean,
-    initialFen: Option[String],
-    analysis: Option[lila.analyse.Analysis],
-    division: chess.Division,
-    moveAccuracy: Option[List[Int]],
-    boards: NonEmptyList[Board],
-    movetimes: NonEmptyList[Int],
-    advices: Map[Ply, Advice]
+      pov: Pov,
+      provisional: Boolean,
+      initialFen: Option[FEN],
+      analysis: Option[lila.analyse.Analysis],
+      division: chess.Division,
+      moveAccuracy: Option[List[Int]],
+      boards: NonEmptyList[Board],
+      movetimes: NonEmptyList[Int],
+      advices: Map[Ply, Advice]
   )
 
   def apply(game: Game, userId: String, provisional: Boolean): Fu[Either[Game, Entry]] =
@@ -42,7 +43,7 @@ object PovToEntry {
           case (fen, an) => for {
             boards <- chess.Replay.boards(
               moveStrs = game.pgnMoves,
-              initialFen = fen map chess.format.FEN,
+              initialFen = fen,
               variant = game.variant
             ).toOption.flatMap(_.toNel)
             movetimes <- game.moveTimes(pov.color).flatMap(_.map(_.roundTenths).toNel)
@@ -51,7 +52,7 @@ object PovToEntry {
             provisional = provisional,
             initialFen = fen,
             analysis = an,
-            division = chess.Divider(boards.list),
+            division = chess.Divider(boards.toList),
             moveAccuracy = an.map { Accuracy.diffsList(pov, _) },
             boards = boards,
             movetimes = movetimes,
@@ -76,11 +77,11 @@ object PovToEntry {
         from.pov.color.fold(is, is.map(_.invert))
       }
     }
-    val movetimes = from.movetimes.list
+    val movetimes = from.movetimes.toList
     val roles = from.pov.game.pgnMoves(from.pov.color) map pgnMoveToRole
     val boards = {
       val pivot = if (from.pov.color == from.pov.game.startColor) 0 else 1
-      from.boards.list.zipWithIndex.collect {
+      from.boards.toList.zipWithIndex.collect {
         case (e, i) if (i % 2) == pivot => e
       }
     }
@@ -117,12 +118,12 @@ object PovToEntry {
   }
 
   private def queenTrade(from: RichPov) = QueenTrade {
-    from.division.end.fold(from.boards.last.some)(from.boards.list.lift) match {
+    from.division.end.fold(from.boards.last.some)(from.boards.toList.lift) match {
       case Some(board) => chess.Color.all.forall { color =>
         !board.hasPiece(chess.Piece(color, chess.Queen))
       }
       case _ =>
-        logger.warn(s"https://lichess.org/${from.pov.game.id} missing endgame board")
+        logger.warn(s"https://lichess.org/${from.pov.gameId} missing endgame board")
         false
     }
   }
@@ -142,8 +143,8 @@ object PovToEntry {
       color = pov.color,
       perf = perfType,
       eco =
-      if (game.playable || game.turns < 4 || game.fromPosition || game.variant.exotic) none
-      else chess.opening.Ecopening fromGame game.pgnMoves,
+        if (game.playable || game.turns < 4 || game.fromPosition || game.variant.exotic) none
+        else chess.opening.Ecopening fromGame game.pgnMoves.toList,
       myCastling = Castling.fromMoves(game pgnMoves pov.color),
       opponentRating = opRating,
       opponentStrength = RelativeStrength(opRating - myRating),

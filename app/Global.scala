@@ -17,19 +17,25 @@ object Global extends GlobalSettings {
     }
   }
 
-  override def onStart(app: Application) {
+  override def onStart(app: Application): Unit = {
     kamon.Kamon.start()
     lila.app.Env.current
   }
 
-  override def onStop(app: Application) {
+  override def onStop(app: Application): Unit = {
     kamon.Kamon.shutdown()
   }
 
   override def onRouteRequest(req: RequestHeader): Option[Handler] = {
     lila.mon.http.request.all()
     if (req.remoteAddress contains ":") lila.mon.http.request.ipv6()
-    super.onRouteRequest(req)
+    if (HTTPRequest isXhr req) lila.mon.http.request.xhr()
+    else if (HTTPRequest isSocket req) lila.mon.http.request.ws()
+    else if (HTTPRequest isFishnet req) lila.mon.http.request.fishnet()
+    else if (HTTPRequest isBot req) lila.mon.http.request.bot()
+    else lila.mon.http.request.page()
+    lila.i18n.Env.current.subdomainKiller(req) orElse
+      super.onRouteRequest(req)
   }
 
   private def niceError(req: RequestHeader): Boolean =
@@ -37,11 +43,11 @@ object Global extends GlobalSettings {
       HTTPRequest.isSynchronousHttp(req) &&
       !HTTPRequest.hasFileExtension(req)
 
-  override def onHandlerNotFound(req: RequestHeader) = {
-    logHttp(404, req)
-    if (niceError(req)) controllers.Main.notFound(req)
-    else fuccess(NotFound("404 - Resource not found"))
-  }
+  override def onHandlerNotFound(req: RequestHeader) =
+    if (niceError(req)) {
+      logHttp(404, req)
+      controllers.Main.renderNotFound(req)
+    } else fuccess(NotFound("404 - Resource not found"))
 
   override def onBadRequest(req: RequestHeader, error: String) = {
     logHttp(400, req)
@@ -59,9 +65,21 @@ object Global extends GlobalSettings {
       if (lila.common.PlayApp.isProd) {
         lila.mon.http.response.code500()
         fuccess(InternalServerError(views.html.base.errorPage(ex) {
-          lila.api.Context(req, lila.app.Env.api.assetVersion.get)
+          lila.api.Context.error(
+            req,
+            lila.i18n.defaultLang,
+            HTTPRequest.isSynchronousHttp(req) option lila.common.Nonce.random
+          )
         }))
       } else super.onError(req, ex)
-    } else fuccess(InternalServerError(ex.getMessage))
+    } else scala.concurrent.Future {
+      InternalServerError(ex.getMessage)
+    } recover {
+      // java.lang.NullPointerException: null
+      // at play.api.mvc.Codec$$anonfun$javaSupported$1.apply(Results.scala:320) ~[com.typesafe.play.play_2.11-2.4.11.jar:2.4.11]
+      case e: java.lang.NullPointerException =>
+        httpLogger.warn(s"""error handler exception on "${ex.getMessage}\"""", e)
+        InternalServerError("Something went wrong.")
+    }
   }
 }

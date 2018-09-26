@@ -8,7 +8,6 @@ import lila.hub.{ actorApi => hubApi }
 import makeTimeout.short
 
 private final class MoveDB(
-    roundMap: ActorSelection,
     system: ActorSystem
 ) {
 
@@ -36,10 +35,10 @@ private final class MoveDB(
   private case class Add(move: Move)
   private case class Acquire(client: Client)
   private case class PostResult(
-    moveId: Work.Id,
-    client: Client,
-    data: JsonApi.Request.PostMove,
-    measurement: lila.mon.Measurement
+      moveId: Work.Id,
+      client: Client,
+      data: JsonApi.Request.PostMove,
+      measurement: lila.mon.Measurement
   )
 
   private val actor = system.actorOf(Props(new Actor {
@@ -89,7 +88,10 @@ private final class MoveDB(
             case Some(uci) =>
               coll -= move.id
               Monitor.move(move, client)
-              roundMap ! hubApi.map.Tell(move.game.id, hubApi.round.FishnetPlay(uci, move.currentFen))
+              system.lilaBus.publish(
+                hubApi.map.Tell(move.game.id, hubApi.round.FishnetPlay(uci, move.currentFen)),
+                'roundMapTell
+              )
             case _ =>
               updateOrGiveUp(move.invalid)
               Monitor.failure(move, client)
@@ -103,8 +105,7 @@ private final class MoveDB(
       if (move.isOutOfTries) {
         logger.warn(s"Give up on move $move")
         coll -= move.id
-      }
-      else coll += (move.id -> move)
+      } else coll += (move.id -> move)
 
     def clearIfFull =
       if (coll.size > maxSize) {

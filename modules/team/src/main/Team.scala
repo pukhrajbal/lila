@@ -6,7 +6,7 @@ import ornicar.scalalib.Random
 import lila.user.User
 
 case class Team(
-    _id: String, // also the url slug
+    _id: Team.ID, // also the url slug
     name: String,
     location: Option[String],
     description: String,
@@ -32,7 +32,10 @@ object Team {
 
   case class IdsStr(value: String) extends AnyVal {
 
-    def contains(teamId: ID) = value contains teamId
+    def contains(teamId: ID) =
+      value.startsWith(teamId) ||
+        value.endsWith(teamId) ||
+        value.contains(s"${IdsStr.separator}$teamId${IdsStr.separator}")
 
     def toArray: Array[String] = value.split(IdsStr.separator)
     def toList = if (value.isEmpty) Nil else toArray.toList
@@ -67,6 +70,6 @@ object Team {
 
   def nameToId(name: String) = (lila.common.String slugify name) |> { slug =>
     // if most chars are not latin, go for random slug
-    (slug.size > (name.size / 2)).fold(slug, Random nextString 8)
+    if (slug.size > (name.size / 2)) slug else Random nextString 8
   }
 }

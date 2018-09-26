@@ -10,29 +10,38 @@
   padding: 5px 0;
 }
 #dasher_app .links a,
-#dasher_app .subs a {
+#dasher_app .links button,
+#dasher_app .subs .sub {
   display: block;
   padding: 5px 10px;
   transition: 0.13s;
   white-space: nowrap;
+  overflow: hidden;
 }
 #dasher_app .links a:hover,
-#dasher_app .subs a:hover,
+#dasher_app .links button:hover,
+#dasher_app .subs .sub:hover,
 #dasher_app .langs form > *:hover {
   background: #F0F0F0;
   color: #444;
 }
+#dasher_app .links button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+}
 #dasher_app .subs {
   border-top: 1px solid #ddd;
 }
-#dasher_app .subs a:before {
+#dasher_app .subs .sub:before {
   float: right;
   opacity: 0.5;
   font-size: 9px;
   margin-top: 4px;
   transition: 0.2s;
 }
-#dasher_app .subs a:hover:before {
+#dasher_app .subs .sub:hover:before {
   color: #3893E8;
   opacity: 0.8;
 }
@@ -42,16 +51,11 @@
   padding: 5px 0;
   border-top: 1px solid #ddd;
 }
-#dasher_app .status .led {
+#dasher_app .status signal {
   position: absolute;
   right: 10px;
-  top: 12px;
+  top: 10px;
   font-size: 20px;
-  opacity: 0.8;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  box-shadow: inset 0 2px 2px 0 rgba(0, 0, 0, 0.4);
 }
 #dasher_app .status .ping,
 #dasher_app .status .server {
@@ -111,24 +115,24 @@
   background: #F0F0F0;
   color: #444;
 }
-#dasher_app .selector a.active {
-  background: #3893E8!important;
-  color: #fff!important;
-}
 #dasher_app .selector a::before {
   margin-right: 8px;
-  font-size: 1.6em;
+  font-size: 19px;
   justify-content: center;
   align-items: center;
   opacity: 0;
 }
 #dasher_app .selector a:hover::before {
   opacity: 1;
-  color: #fff;
+  color: #3893E8;
 }
-#dasher_app .selector a.active::before {
+#dasher_app .zen a::before {
+  font-size: 18px;
+  margin-right: 3px;
+  opacity: 0.5;
+}
+#dasher_app .zen:hover a::before{
   opacity: 1;
-  color: #fff!important;
 }
 #dasher_app .sound .content {
   display: flex;
@@ -164,6 +168,8 @@
   border: 1px solid #444;
   box-sizing: border-box;
   width: 100%;
+  background-color: #3e3e3e;
+  color: #fff;
 }
 
 #dasher_app .board .zoom {
@@ -350,43 +356,6 @@
   background-image: url(../images/board/3d/woodi.thumbnail.png);
 }
 
-#dasher_app piece.cburnett {
-  background-image: url(../piece-src/cburnett/wN.svg);
-}
-#dasher_app piece.merida {
-  background-image: url(../piece/merida/wN.svg);
-}
-#dasher_app piece.chess7 {
-  background-image: url(../piece/chess7/wN.svg);
-}
-#dasher_app piece.spatial {
-  background-image: url(../piece/spatial/wN.svg);
-}
-#dasher_app piece.alpha {
-  background-image: url(../piece/alpha/wN.svg);
-}
-#dasher_app piece.pirouetti {
-  background-image: url(../piece-src/pirouetti/wN.svg);
-}
-#dasher_app piece.reillycraig {
-  background-image: url(../piece/reillycraig/wN.svg);
-}
-#dasher_app piece.fantasy {
-  background-image: url(../piece/fantasy/wN.svg);
-}
-#dasher_app piece.shapes {
-  background-image: url(../piece/shapes/wN.svg);
-}
-#dasher_app piece.letter {
-  background-image: url(../piece/letter/wN.svg);
-}
-#dasher_app piece.chessnut {
-  background-image: url(../piece/chessnut/wN.svg);
-}
-#dasher_app piece.companion {
-  background-image: url(../piece/companion/wN.svg);
-}
-
 body.dark #dasher_app .subs,
 body.dark #dasher_app .status,
 body.dark #dasher_app .board .zoom {
@@ -394,11 +363,15 @@ body.dark #dasher_app .board .zoom {
 }
 body.dark #dasher_app .head,
 body.dark #dasher_app .links a:hover,
+body.dark #dasher_app .links button:hover,
 body.dark #dasher_app .subs a:hover,
 body.dark #dasher_app .langs form > *:hover,
 body.dark #dasher_app .selector a:hover {
   background: #3e3e3e;
   color: #b0b0b0;
+}
+body.dark #dasher_app .links button {
+  color: #8f8f8f;
 }
 body.dark #dasher_app .selector a:hover::before {
   color: #555;

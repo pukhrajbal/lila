@@ -1,6 +1,6 @@
 package lila.study
 
-import chess.format.pgn.{ Glyph, Glyphs, Tag }
+import chess.format.pgn.{ Glyph, Glyphs, Tag, Tags }
 import chess.format.{ Uci, UciCharPair, FEN }
 import chess.variant.{ Variant, Crazyhouse }
 import chess.{ Centis, Pos, Role, PromotableRole }
@@ -10,10 +10,13 @@ import reactivemongo.bson._
 import lila.db.BSON
 import lila.db.BSON.{ Reader, Writer }
 import lila.db.dsl._
-import lila.tree.Node.{ Shape, Shapes }
+import lila.tree.Eval
+import lila.tree.Eval.Score
+import lila.tree.Node.{ Shape, Shapes, Comment, Comments, Gamebook }
+import lila.game.BSONHandlers.FENBSONHandler
 
-import lila.common.Iso._
 import lila.common.Iso
+import lila.common.Iso._
 
 object BSONHandlers {
 
@@ -76,15 +79,12 @@ object BSONHandlers {
   import Uci.WithSan
   private implicit val UciWithSanBSONHandler = Macros.handler[WithSan]
 
-  private implicit val FenBSONHandler = stringAnyValHandler[FEN](_.value, FEN.apply)
-
   implicit val ShapesBSONHandler: BSONHandler[BSONArray, Shapes] =
     isoHandler[Shapes, List[Shape], BSONArray](
       (s: Shapes) => s.value,
       Shapes(_)
     )
 
-  import lila.tree.Node.{ Comment, Comments }
   private implicit val CommentIdBSONHandler = stringAnyValHandler[Comment.Id](_.value, Comment.Id.apply)
   private implicit val CommentTextBSONHandler = stringAnyValHandler[Comment.Text](_.value, Comment.Text.apply)
   implicit val CommentAuthorBSONHandler = new BSONHandler[BSONValue, Comment.Author] {
@@ -114,6 +114,8 @@ object BSONHandlers {
       Comments(_)
     )
 
+  implicit val GamebookBSONHandler = Macros.handler[Gamebook]
+
   private implicit def CrazyDataBSONHandler: BSON[Crazyhouse.Data] = new BSON[Crazyhouse.Data] {
     private def writePocket(p: Crazyhouse.Pocket) = p.roles.map(_.forsyth).mkString
     private def readPocket(p: String) = Crazyhouse.Pocket(p.flatMap(chess.Role.forsyth)(scala.collection.breakOut))
@@ -138,7 +140,22 @@ object BSONHandlers {
     def write(x: Glyphs) = BSONArray(x.toList.map(_.id).map(BSONInteger.apply))
   }
 
-  private implicit def NodeBSONHandler: BSON[Node] = new BSON[Node] {
+  implicit val EvalScoreBSONHandler = new BSONHandler[BSONInteger, Score] {
+    private val mateFactor = 1000000
+    def read(i: BSONInteger) = Score {
+      val v = i.value
+      if (v >= mateFactor || v <= -mateFactor) Right(Eval.Mate(v / mateFactor))
+      else Left(Eval.Cp(v))
+    }
+    def write(e: Score) = BSONInteger {
+      e.value.fold(
+        cp => cp.value atLeast (-mateFactor + 1) atMost (mateFactor - 1),
+        mate => mate.value * mateFactor
+      )
+    }
+  }
+
+  implicit def NodeBSONHandler: BSON[Node] = new BSON[Node] {
     def reads(r: Reader) = Node(
       id = r.get[UciCharPair]("i"),
       ply = r int "p",
@@ -147,7 +164,9 @@ object BSONHandlers {
       check = r boolD "c",
       shapes = r.getO[Shapes]("h") | Shapes.empty,
       comments = r.getO[Comments]("co") | Comments.empty,
+      gamebook = r.getO[Gamebook]("ga"),
       glyphs = r.getO[Glyphs]("g") | Glyphs.empty,
+      score = r.getO[Score]("e"),
       crazyData = r.getO[Crazyhouse.Data]("z"),
       clock = r.getO[Centis]("l"),
       children = r.get[Node.Children]("n")
@@ -161,7 +180,9 @@ object BSONHandlers {
       "c" -> w.boolO(s.check),
       "h" -> s.shapes.value.nonEmpty.option(s.shapes),
       "co" -> s.comments.value.nonEmpty.option(s.comments),
+      "ga" -> s.gamebook,
       "g" -> s.glyphs.nonEmpty,
+      "e" -> s.score,
       "l" -> s.clock,
       "z" -> s.crazyData,
       "n" -> (if (s.ply < Node.MAX_PLIES) s.children else Node.emptyChildren)
@@ -175,7 +196,9 @@ object BSONHandlers {
       check = r boolD "c",
       shapes = r.getO[Shapes]("h") | Shapes.empty,
       comments = r.getO[Comments]("co") | Comments.empty,
+      gamebook = r.getO[Gamebook]("ga"),
       glyphs = r.getO[Glyphs]("g") | Glyphs.empty,
+      score = r.getO[Score]("e"),
       clock = r.getO[Centis]("l"),
       crazyData = r.getO[Crazyhouse.Data]("z"),
       children = r.get[Node.Children]("n")
@@ -186,7 +209,9 @@ object BSONHandlers {
       "c" -> w.boolO(s.check),
       "h" -> s.shapes.value.nonEmpty.option(s.shapes),
       "co" -> s.comments.value.nonEmpty.option(s.comments),
+      "ga" -> s.gamebook,
       "g" -> s.glyphs.nonEmpty,
+      "e" -> s.score,
       "l" -> s.clock,
       "z" -> s.crazyData,
       "n" -> s.children
@@ -196,16 +221,14 @@ object BSONHandlers {
     private val nodesHandler = bsonArrayToVectorHandler[Node]
     def read(b: Barr) = try {
       Node.Children(nodesHandler read b)
-    }
-    catch {
+    } catch {
       case e: StackOverflowError =>
         println(s"study handler ${e.toString}")
         Node.emptyChildren
     }
     def write(x: Node.Children) = try {
       nodesHandler write x.nodes
-    }
-    catch {
+    } catch {
       case e: StackOverflowError =>
         println(s"study handler ${e.toString}")
         $arr()
@@ -228,7 +251,14 @@ object BSONHandlers {
     }
     def write(t: Tag) = BSONString(s"${t.name}:${t.value}")
   }
+  implicit val PgnTagsBSONHandler: BSONHandler[BSONArray, Tags] =
+    isoHandler[Tags, List[Tag], BSONArray](
+      (s: Tags) => s.value,
+      Tags(_)
+    )
   private implicit val ChapterSetupBSONHandler = Macros.handler[Chapter.Setup]
+  implicit val ChapterRelayBSONHandler = Macros.handler[Chapter.Relay]
+  implicit val ChapterServerEvalBSONHandler = Macros.handler[Chapter.ServerEval]
   import Chapter.Ply
   implicit val PlyBSONHandler = intAnyValHandler[Ply](_.value, Ply.apply)
   implicit val ChapterBSONHandler = Macros.handler[Chapter]
@@ -267,12 +297,15 @@ object BSONHandlers {
       case Array("scratch") => From.Scratch
       case Array("game", id) => From.Game(id)
       case Array("study", id) => From.Study(Study.Id(id))
+      case Array("relay") => From.Relay(none)
+      case Array("relay", id) => From.Relay(Study.Id(id).some)
       case _ => sys error s"Invalid from ${bs.value}"
     }
     def write(x: From) = BSONString(x match {
       case From.Scratch => "scratch"
       case From.Game(id) => s"game $id"
       case From.Study(id) => s"study $id"
+      case From.Relay(id) => s"relay${id.fold("")(" " + _)}"
     })
   }
   import Settings.UserSelection
@@ -284,14 +317,16 @@ object BSONHandlers {
     def reads(r: Reader) = Settings(
       computer = r.get[UserSelection]("computer"),
       explorer = r.get[UserSelection]("explorer"),
-      cloneable = r.getO[UserSelection]("cloneable") | UserSelection.Everyone
+      cloneable = r.getO[UserSelection]("cloneable") | Settings.init.cloneable,
+      chat = r.getO[UserSelection]("chat") | Settings.init.chat,
+      sticky = r.getO[Boolean]("sticky") | Settings.init.sticky
     )
     private val writer = Macros.writer[Settings]
     def writes(w: Writer, s: Settings) = writer write s
   }
 
   import Study.Likes
-  private[study] implicit val LikesBSONHandler = intAnyValHandler[Likes](_.value, Likes.apply)
+  implicit val LikesBSONHandler = intAnyValHandler[Likes](_.value, Likes.apply)
   import Study.Rank
   private[study] implicit val RankBSONHandler = dateIsoHandler[Rank](Iso[DateTime, Rank](Rank.apply, _.value))
 

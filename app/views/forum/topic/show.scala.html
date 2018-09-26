@@ -6,7 +6,7 @@
 }
 
 @modMenu = {
-  @mod.menu("forum")
+@mod.menu("forum")
 }
 
 @forum.layout(
@@ -16,7 +16,7 @@ moreJs = moreJs,
 openGraph = lila.app.ui.OpenGraph(
 title = s"Forum: ${categ.name} / ${topic.name} page ${posts.currentPage}",
 url = s"$netBaseUrl${routes.ForumTopic.show(categ.slug, topic.slug).url}",
-description = shorten(posts.currentPageResults.headOption.??(_.text).replace("\n", ""), 152).body).some) {
+description = shorten(posts.currentPageResults.headOption.??(_.text), 152)).some) {
 <div class="topic">
   @categ.team.map { team =>
   <ol class="crumbs">
@@ -38,18 +38,21 @@ description = shorten(posts.currentPageResults.headOption.??(_.text).replace("\n
 
   <div class="forum_posts_list embed_analyse">
     @posts.currentPageResults.map { post =>
-    <div class="post" id="@post.number">
+    <div class="post@if(post.erased){ erased}" id="@post.number">
       <div class="metas clearfix">
-        @authorLink(post, "author".some)
+        @defining(routes.ForumTopic.show(categ.slug, topic.slug, posts.currentPage) + s"#${post.number}") { url =>
+        @authorLink(post=post, cssClass="author".some, modIcon=post.displayModIcon)
 
-        @post.updatedAt.map { updatedAt =>
+        <a href="@url">
+          @post.updatedAt.map { updatedAt =>
           <span class="post-edited">edited</span>
           @momentFromNow(updatedAt)
-        }.getOrElse {
+          }.getOrElse {
           @momentFromNow(post.createdAt)
-        }
+          }
+        </a>
 
-        <a class="anchor" href="@routes.ForumTopic.show(categ.slug, topic.slug, posts.currentPage)#@post.number">#@post.number</a>
+        <a class="anchor" href="@url">#@post.number</a>
 
         @if(isGranted(_.IpBan)) {
         <span class="mod postip">@post.ip</span>
@@ -60,8 +63,9 @@ description = shorten(posts.currentPageResults.headOption.??(_.text).replace("\n
         @if(canModCateg) {
         <a class="mod thin delete button" href="@routes.ForumPost.delete(categ.slug, post.id)" data-icon="q"> Delete</a>
         }
+        }
       </div>
-      <p class="message">@autoLink(post.text)</p>
+      <p class="message">@if(post.erased){@lila.common.String.erasedHtml}else{@richText(post.text)}</p>
       @if(ctx.userId.fold(false)(post.shouldShowEditForm(_))) {
       <form class="edit-post-form" method="post" action="@routes.ForumPost.edit(post.id)">
         <textarea data-topic="@topic.id" name="changes" class="post-text-area edit-post-box" minlength="3" required>@post.text</textarea>
@@ -84,24 +88,33 @@ description = shorten(posts.currentPageResults.headOption.??(_.text).replace("\n
 
   @if(isGranted(_.ModerateForum)) {
   <form class="mod" method="post" action="@routes.ForumTopic.hide(categ.slug, topic.slug)">
-    <button class="button">@topic.hidden.fold("Feature", "Un-feature")</button>
+    <button class="button">@if(topic.hidden){Feature}else{Un-feature}</button>
   </form>
   }
   @if(canModCateg) {
   <form class="mod" method="post" action="@routes.ForumTopic.close(categ.slug, topic.slug)">
-    <button class="button">@topic.closed.fold("Reopen", "Close")</button>
+    <button class="button">@if(topic.closed){Reopen}else{Close}</button>
+  </form>
+  <form class="mod" method="post" action="@routes.ForumTopic.sticky(categ.slug, topic.slug)">
+    <button class="button">@if(topic.isSticky){Un-sticky}else{Sticky}</button>
   </form>
   }
 
   <div class="topicReply">
+    @if(topic.isOld) {
+    <p>This topic has been archived and can no longer be replied to.</p>
+    } else {
     @formWithCaptcha.map {
     case (form, captcha) => {
     <h2 class="postNewTitle" id="reply">@trans.replyToThisTopic()</h2>
     <form class="wide" action="@routes.ForumPost.create(categ.slug, topic.slug, posts.currentPage)#reply" method="POST" novalidate>
-      @forum.post.formFields(form("text"), form("author"), topic.some)
+      @forum.post.formFields(form("text"), topic.some)
       @base.captcha(form("move"), form("gameId"), captcha)
-      @errMsg(form)
+      @globalError(form)
       <button type="submit" class="submit button" data-icon="E"> @trans.reply()</button>
+      @if(isGranted(_.PublicMod)){
+        <button type="submit" class="button" data-icon="" name="modIcon" value="true" /> Reply as mod</button>
+      }
       <a href="@routes.ForumCateg.show(categ.slug)" style="margin-left:20px">@trans.cancel()</a>
     </form>
     }
@@ -112,6 +125,7 @@ description = shorten(posts.currentPageResults.headOption.??(_.text).replace("\n
     @categ.team.map { teamId =>
     @if(!myTeam(teamId)) {
     <p><a href="@routes.Team.show(teamId)">Join the @teamIdToName(teamId) team</a> to post in this forum</p>
+    }
     }
     }
     }

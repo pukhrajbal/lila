@@ -1,35 +1,41 @@
 package lila.db
 
-import ornicar.scalalib.Zero
 import org.joda.time.DateTime
+import ornicar.scalalib.Zero
 import reactivemongo.bson._
 
 import dsl._
 import lila.common.Iso
 
 abstract class BSON[T]
-    extends BSONHandler[Bdoc, T]
-    with BSONDocumentReader[T]
-    with BSONDocumentWriter[T] {
+  extends BSONReadOnly[T]
+  with BSONHandler[Bdoc, T]
+  with BSONDocumentReader[T]
+  with BSONDocumentWriter[T] {
+
+  import BSON._
+
+  def writes(writer: Writer, obj: T): Bdoc
+
+  def write(obj: T): Bdoc = writes(writer, obj)
+}
+
+abstract class BSONReadOnly[T] extends BSONDocumentReader[T] {
 
   val logMalformed = true
 
   import BSON._
 
   def reads(reader: Reader): T
-  def writes(writer: Writer, obj: T): Bdoc
 
   def read(doc: Bdoc): T = if (logMalformed) try {
     reads(new Reader(doc))
-  }
-  catch {
+  } catch {
     case e: Exception =>
       logger.warn(s"Can't read malformed doc ${debug(doc)}", e)
       throw e
   }
   else reads(new Reader(doc))
-
-  def write(obj: T): Bdoc = writes(writer, obj)
 }
 
 object BSON extends Handlers {
@@ -44,8 +50,7 @@ object BSON extends Handlers {
     new BSONHandler[Bdoc, T] with BSONDocumentReader[T] with BSONDocumentWriter[T] {
       def read(doc: Bdoc): T = try {
         handler read doc
-      }
-      catch {
+      } catch {
         case e: Exception =>
           logger.warn(s"Can't read malformed doc ${debug(doc)}", e)
           throw e
@@ -172,6 +177,7 @@ object BSON extends Handlers {
     def byteArrayO(b: ByteArray): Option[BSONBinary] =
       if (b.isEmpty) None else ByteArray.ByteArrayBSONHandler.write(b).some
     def bytesO(b: Array[Byte]): Option[BSONBinary] = byteArrayO(ByteArray(b))
+    def bytes(b: Array[Byte]): BSONBinary = BSONBinary(b, ByteArray.subtype)
     def strListO(list: List[String]): Option[List[String]] = list match {
       case Nil => None
       case List("") => None
@@ -185,6 +191,7 @@ object BSON extends Handlers {
     def docO(o: Bdoc): Option[Bdoc] = if (o.isEmpty) None else Some(o)
     def double(i: Double): BSONDouble = BSONDouble(i)
     def doubleO(i: Double): Option[BSONDouble] = if (i != 0) Some(BSONDouble(i)) else None
+    def zero[A](a: A)(implicit zero: Zero[A]): Option[A] = if (zero.zero == a) None else Some(a)
 
     import scalaz.Functor
     def map[M[_]: Functor, A, B <: BSONValue](a: M[A])(implicit writer: BSONWriter[A, B]): M[B] =

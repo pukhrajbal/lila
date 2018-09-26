@@ -13,19 +13,9 @@ object ForumPost extends LilaController with ForumController {
 
   def search(text: String, page: Int) = OpenBody { implicit ctx =>
     NotForKids {
-      text.trim.isEmpty.fold(
-        Redirect(routes.ForumCateg.index).fuccess,
-        Env.forumSearch(text, page, isGranted(_.StaffForum), ctx.troll) map { paginator =>
-          html.forum.search(text, paginator)
-        }
-      )
-    }
-  }
-
-  def recent = Open { implicit ctx =>
-    NotForKids {
-      Env.forum.recent(ctx.me, teamCache.teamIdsList) map { posts =>
-        html.forum.post.recent(posts)
+      if (text.trim.isEmpty) Redirect(routes.ForumCateg.index).fuccess
+      else Env.forumSearch(text, page, isGranted(_.StaffForum), ctx.troll) map { paginator =>
+        html.forum.search(text, paginator)
       }
     }
   }
@@ -37,6 +27,7 @@ object ForumPost extends LilaController with ForumController {
         OptionFuResult(topicApi.show(categSlug, slug, page, ctx.troll)) {
           case (categ, topic, posts) =>
             if (topic.closed) fuccess(BadRequest("This topic is closed"))
+            else if (topic.isOld) fuccess(BadRequest("This topic is archived"))
             else forms.post.bindFromRequest.fold(
               err => for {
                 captcha <- forms.anyCaptcha

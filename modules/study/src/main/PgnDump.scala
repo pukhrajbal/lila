@@ -1,12 +1,13 @@
 package lila.study
 
 import chess.format.Forsyth
-import chess.format.pgn.{ Pgn, Tag, Initial }
+import chess.format.pgn.{ Pgn, Tag, Tags, Initial }
 import chess.format.{ pgn => chessPgn }
 import org.joda.time.format.DateTimeFormat
 
 import lila.common.LightUser
 import lila.common.String.slugify
+import lila.tree.Node.{ Shape, Shapes, Comment }
 
 final class PgnDump(
     chapterRepo: ChapterRepo,
@@ -53,20 +54,22 @@ final class PgnDump(
   private def annotatorTag(study: Study) =
     Tag(_.Annotator, s"https://lichess.org/@/${ownerName(study)}")
 
-  private def makeTags(study: Study, chapter: Chapter): List[Tag] = {
+  private def makeTags(study: Study, chapter: Chapter): Tags = Tags {
     val opening = chapter.opening
     val genTags = List(
       Tag(_.Event, s"${study.name}: ${chapter.name}"),
       Tag(_.Site, studyUrl(study.id)),
-      Tag(_.Date, dateFormat.print(chapter.createdAt)),
+      Tag(_.UTCDate, Tag.UTCDate.format.print(chapter.createdAt)),
+      Tag(_.UTCTime, Tag.UTCTime.format.print(chapter.createdAt)),
       Tag(_.Variant, chapter.setup.variant.name.capitalize),
       Tag(_.ECO, opening.fold("?")(_.eco)),
-      Tag(_.Opening, opening.fold("?")(_.name))
+      Tag(_.Opening, opening.fold("?")(_.name)),
+      Tag(_.Result, "*") // required for SCID to import
     ) ::: List(annotatorTag(study)) ::: (chapter.root.fen.value != Forsyth.initial).??(List(
         Tag(_.FEN, chapter.root.fen.value),
         Tag("SetUp", "1")
       ))
-    genTags.foldLeft(chapter.tags.reverse) {
+    genTags.foldLeft(chapter.tags.value.reverse) {
       case (tags, tag) =>
         if (tags.exists(t => tag.name == t.name)) tags
         else tag :: tags
@@ -82,7 +85,7 @@ private[study] object PgnDump {
   def node2move(node: Node, variations: Variations) = chessPgn.Move(
     san = node.move.san,
     glyphs = node.glyphs,
-    comments = node.comments.list.map(_.text.value),
+    comments = node.comments.list.map(_.text.value) ::: shapeComment(node.shapes).toList,
     opening = none,
     result = none,
     variations = variations.map { child =>
@@ -90,6 +93,25 @@ private[study] object PgnDump {
     }(scala.collection.breakOut),
     secondsLeft = node.clock.map(_.roundSeconds)
   )
+
+  // [%csl Gb4,Yd5,Rf6][%cal Ge2e4,Ye2d4,Re2g4]
+  private def shapeComment(shapes: Shapes): Option[String] = {
+    def render(as: String)(shapes: List[String]) = shapes match {
+      case Nil => ""
+      case shapes => s"[%$as ${shapes.mkString(",")}]"
+    }
+    val circles = render("csl") {
+      shapes.value.collect {
+        case Shape.Circle(brush, orig) => s"${brush.head.toUpper}$orig"
+      }
+    }
+    val arrows = render("cal") {
+      shapes.value.collect {
+        case Shape.Arrow(brush, orig, dest) => s"${brush.head.toUpper}$orig$dest"
+      }
+    }
+    s"$circles$arrows".some.filter(_.nonEmpty)
+  }
 
   def toTurn(first: Node, second: Option[Node], variations: Variations) = chessPgn.Turn(
     number = first.fullMoveNumber,

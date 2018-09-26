@@ -1,5 +1,6 @@
 package lila.qa
 
+import akka.actor._
 import com.typesafe.config.Config
 import lila.common.DetectLanguage
 
@@ -10,6 +11,7 @@ final class Env(
     mongoCache: lila.memo.MongoCache.Builder,
     asyncCache: lila.memo.AsyncCache.Builder,
     notifyApi: lila.notify.NotifyApi,
+    system: akka.actor.ActorSystem,
     db: lila.db.Env
 ) {
 
@@ -34,6 +36,12 @@ final class Env(
   lazy val search = new Search(questionColl)
 
   lazy val forms = new DataForm(hub.actor.captcher, detectLanguage)
+
+  system.lilaBus.subscribeFun('gdprErase) {
+    case lila.user.User.GDPRErase(user) =>
+      api.question erase user
+      api.answer erase user
+  }
 }
 
 object Env {
@@ -45,6 +53,7 @@ object Env {
     mongoCache = lila.memo.Env.current.mongoCache,
     asyncCache = lila.memo.Env.current.asyncCache,
     notifyApi = lila.notify.Env.current.api,
+    system = lila.common.PlayApp.system,
     db = lila.db.Env.current
   )
 }

@@ -1,6 +1,7 @@
 package lila.game
 
 import lila.common.LightUser
+import lila.user.User
 import play.twirl.api.Html
 
 object Namer {
@@ -11,8 +12,11 @@ object Namer {
   def player(p: Player, withRating: Boolean = true, withTitle: Boolean = true)(implicit lightUser: LightUser.GetterSync) = Html {
     p.aiLevel.fold(
       p.userId.flatMap(lightUser).fold(lila.user.User.anonymous) { user =>
-        if (withRating) s"${withTitle.fold(user.titleNameHtml, user.name)}&nbsp;(${ratingString(p)})"
-        else withTitle.fold(user.titleName, user.name)
+        val title = (user.title ifTrue withTitle) ?? { t =>
+          s"""<span class="title" data-title="$t" title="${User titleName t}">$t</span>&nbsp;"""
+        }
+        if (withRating) s"$title${user.name}&nbsp;(${ratingString(p)})"
+        else s"$title${user.name}"
       }
     ) { level => s"A.I. level $level" }
   }
@@ -31,7 +35,4 @@ object Namer {
     case Some(rating) => s"$rating${if (p.provisional) "?" else ""}"
     case _ => "?"
   }
-
-  def playerString(p: Player, withRating: Boolean = true, withTitle: Boolean = true)(implicit lightUser: LightUser.GetterSync) =
-    player(p, withRating, withTitle)(lightUser).body.replace("&nbsp;", " ")
 }

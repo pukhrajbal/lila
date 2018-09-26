@@ -33,10 +33,10 @@ final class Env(
   lazy val api = new MessageApi(
     coll = threadColl,
     shutup = shutup,
-    maxPerPage = ThreadMaxPerPage,
+    maxPerPage = lila.common.MaxPerPage(ThreadMaxPerPage),
     blocks = blocks,
     notifyApi = notifyApi,
-    follows = follows,
+    security = security,
     lilaBus = system.lilaBus
   )
 
@@ -45,6 +45,10 @@ final class Env(
     blocks = blocks,
     getPref = getPref
   )
+
+  system.lilaBus.subscribeFun('gdprErase) {
+    case lila.user.User.GDPRErase(user) => api erase user
+  }
 }
 
 object Env {

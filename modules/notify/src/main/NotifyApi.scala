@@ -18,15 +18,15 @@ final class NotifyApi(
   import BSONHandlers.NotificationBSONHandler
   import jsonHandlers._
 
-  val perPage = 7
+  val perPage = lila.common.MaxPerPage(7)
 
   def getNotifications(userId: Notification.Notifies, page: Int): Fu[Paginator[Notification]] = Paginator(
     adapter = new Adapter(
-    collection = repo.coll,
-    selector = repo.userNotificationsQuery(userId),
-    projection = $empty,
-    sort = repo.recentSort
-  ),
+      collection = repo.coll,
+      selector = repo.userNotificationsQuery(userId),
+      projection = $empty,
+      sort = repo.recentSort
+    ),
     currentPage = page,
     maxPerPage = perPage
   )
@@ -66,14 +66,13 @@ final class NotifyApi(
   def exists = repo.exists _
 
   private def shouldSkip(notification: Notification) =
-    UserRepo.isKid(notification.notifies.value) flatMap {
-      case true => fuccess(true)
-      case false => notification.content match {
+    UserRepo.isKid(notification.notifies.value) >>| {
+      notification.content match {
         case MentionedInThread(_, _, topicId, _, _) => repo.hasRecentNotificationsInThread(notification.notifies, topicId)
         case InvitedToStudy(invitedBy, _, studyId) => repo.hasRecentStudyInvitation(notification.notifies, studyId)
         case PrivateMessage(_, thread, _) => repo.hasRecentPrivateMessageFrom(notification.notifies, thread)
         case QaAnswer(_, question, _) => repo.hasRecentQaAnswer(notification.notifies, question)
-        case _ => fuccess(false)
+        case _ => fuFalse
       }
     }
 

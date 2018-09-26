@@ -7,6 +7,8 @@ lichess.keyboardMove = function(opts) {
   var writer = sanWriter();
   var sans = null;
   var submit = function(v, force) {
+    // consider 0's as O's for castling
+    v = v.replace(/0/g, 'O');
     var foundUci = v.length >= 2 && sans && sanToUci(v, sans);
     if (foundUci) {
       // ambiguous castle
@@ -38,12 +40,19 @@ function makeBindings(opts, submit, clear) {
   Mousetrap.bind('enter', function() {
     opts.input.focus();
   });
+  /* keypress doesn't cut it here;
+   * at the time it fires, the last typed char
+   * is not available yet. Reported by:
+   * https://lichess.org/forum/lichess-feedback/keyboard-input-changed-today-maybe-a-bug
+   */
   opts.input.addEventListener('keyup', function(e) {
     var v = e.target.value;
     if (v.indexOf('/') > -1) {
       focusChat();
       clear();
-    } else submit(v, e.keyCode === 13);
+    }
+    else if (v === '' && e.which === 13) opts.confirmMove();
+    else submit(v, e.which === 13);
   });
   opts.input.addEventListener('focus', function() {
     opts.setFocus(true);

@@ -7,7 +7,8 @@ import scala.concurrent.duration._
 
 import chess.variant.Variant
 import lila.common.Debouncer
-import lila.game.{ Game, GameRepo }
+import lila.game.{ Game, GameRepo, PerfPicker }
+import lila.hub.{ Duct, DuctMap }
 import lila.hub.actorApi.lobby.ReloadSimuls
 import lila.hub.actorApi.map.Tell
 import lila.hub.actorApi.timeline.{ Propagate, SimulCreate, SimulJoin }
@@ -15,10 +16,10 @@ import lila.socket.actorApi.SendToFlag
 import lila.user.{ User, UserRepo }
 import makeTimeout.short
 
-private[simul] final class SimulApi(
+final class SimulApi(
     system: ActorSystem,
-    sequencers: ActorRef,
-    onGameStart: String => Unit,
+    sequencers: DuctMap[_],
+    onGameStart: Game.ID => Unit,
     socketHub: ActorRef,
     site: ActorSelection,
     renderer: ActorSelection,
@@ -31,9 +32,11 @@ private[simul] final class SimulApi(
 
   def currentHostIds: Fu[Set[String]] = currentHostIdsCache.get
 
+  def byIds = repo.byIds _
+
   private val currentHostIdsCache = asyncCache.single[Set[String]](
     name = "simul.currentHostIds",
-    f = repo.allStarted map (_.map(_.hostId)(scala.collection.breakOut)),
+    f = repo.allStarted dmap (_.map(_.hostId)(scala.collection.breakOut)),
     expireAfter = _.ExpireAfterAccess(10 minutes)
   )
 
@@ -55,23 +58,33 @@ private[simul] final class SimulApi(
     } inject simul
   }
 
-  def addApplicant(simulId: Simul.ID, user: User, variantKey: String) {
+  def addApplicant(simulId: Simul.ID, user: User, variantKey: String): Unit = {
     WithSimul(repo.findCreated, simulId) { simul =>
       if (simul.nbAccepted >= Game.maxPlayingRealtime) simul
       else {
         timeline ! (Propagate(SimulJoin(user.id, simul.id, simul.fullName)) toFollowersOf user.id)
         Variant(variantKey).filter(simul.variants.contains).fold(simul) { variant =>
-          simul addApplicant SimulApplicant.make(SimulPlayer.make(user, variant))
+          simul addApplicant SimulApplicant.make(
+            SimulPlayer.make(
+              user,
+              variant,
+              PerfPicker.mainOrDefault(
+                speed = chess.Speed(simul.clock.config.some),
+                variant = variant,
+                daysPerTurn = none
+              )(user.perfs)
+            )
+          )
         }
       }
     }
   }
 
-  def removeApplicant(simulId: Simul.ID, user: User) {
+  def removeApplicant(simulId: Simul.ID, user: User): Unit = {
     WithSimul(repo.findCreated, simulId) { _ removeApplicant user.id }
   }
 
-  def accept(simulId: Simul.ID, userId: String, v: Boolean) {
+  def accept(simulId: Simul.ID, userId: String, v: Boolean): Unit = {
     UserRepo byId userId foreach {
       _ foreach { user =>
         WithSimul(repo.findCreated, simulId) { _.accept(user.id, v) }
@@ -79,7 +92,7 @@ private[simul] final class SimulApi(
     }
   }
 
-  def start(simulId: Simul.ID) {
+  def start(simulId: Simul.ID): Unit = {
     Sequence(simulId) {
       repo.findCreated(simulId) flatMap {
         _ ?? { simul =>
@@ -93,21 +106,24 @@ private[simul] final class SimulApi(
                   case (s, (g, hostColor)) => s.setPairingHostColor(g.id, hostColor)
                 }
               }
-            } flatMap update
-          } >>- currentHostIdsCache.refresh
+            } flatMap { s =>
+              system.lilaBus.publish(Simul.OnStart(s), 'startSimul)
+              update(s) >>- currentHostIdsCache.refresh
+            }
+          }
         }
       }
     }
   }
 
-  def onPlayerConnection(game: Game, user: Option[User])(simul: Simul) {
-    user.filter(_.id == simul.hostId) ifTrue simul.isRunning foreach { host =>
+  def onPlayerConnection(game: Game, user: Option[User])(simul: Simul): Unit = {
+    user.filter(simul.isHost) ifTrue simul.isRunning foreach { host =>
       repo.setHostGameId(simul, game.id)
       sendTo(simul.id, actorApi.HostIsOn(game.id))
     }
   }
 
-  def abort(simulId: Simul.ID) {
+  def abort(simulId: Simul.ID): Unit = {
     Sequence(simulId) {
       repo.findCreated(simulId) flatMap {
         _ ?? { simul =>
@@ -117,7 +133,7 @@ private[simul] final class SimulApi(
     }
   }
 
-  def finishGame(game: Game) {
+  def finishGame(game: Game): Unit = {
     game.simulId foreach { simulId =>
       Sequence(simulId) {
         repo.findStarted(simulId) flatMap {
@@ -127,14 +143,7 @@ private[simul] final class SimulApi(
               _.finish(game.status, game.winnerUserId, game.turns)
             )
             update(simul2) >>- {
-              currentHostIdsCache.refresh
-              if (simul2.isFinished) userRegister ! lila.hub.actorApi.SendTo(
-                simul2.hostId,
-                lila.socket.Socket.makeMessage("simulEnd", Json.obj(
-                  "id" -> simul.id,
-                  "name" -> simul.name
-                ))
-              )
+              if (simul2.isFinished) onComplete(simul2)
             }
           }
         }
@@ -142,7 +151,18 @@ private[simul] final class SimulApi(
     }
   }
 
-  def ejectCheater(userId: String) {
+  private def onComplete(simul: Simul): Unit = {
+    currentHostIdsCache.refresh
+    userRegister ! lila.hub.actorApi.SendTo(
+      simul.hostId,
+      lila.socket.Socket.makeMessage("simulEnd", Json.obj(
+        "id" -> simul.id,
+        "name" -> simul.name
+      ))
+    )
+  }
+
+  def ejectCheater(userId: String): Unit = {
     repo.allNotFinished foreach {
       _ foreach { oldSimul =>
         Sequence(oldSimul.id) {
@@ -166,23 +186,22 @@ private[simul] final class SimulApi(
     hostColor = simul.hostColor
     whiteUser = hostColor.fold(host, user)
     blackUser = hostColor.fold(user, host)
+    clock = simul.clock.chessClockOf(hostColor)
+    perfPicker = lila.game.PerfPicker.mainOrDefault(chess.Speed(clock.config), pairing.player.variant, none)
     game1 = Game.make(
-      game = chess.Game(
-        board = chess.Board init pairing.player.variant,
-        clock = simul.clock.chessClockOf(hostColor).start.some
+      chess = chess.Game(
+        situation = chess.Situation(pairing.player.variant),
+        clock = clock.start.some
       ),
-      whitePlayer = lila.game.Player.white,
-      blackPlayer = lila.game.Player.black,
+      whitePlayer = lila.game.Player.make(chess.White, whiteUser.some, perfPicker),
+      blackPlayer = lila.game.Player.make(chess.Black, blackUser.some, perfPicker),
       mode = chess.Mode.Casual,
-      variant = pairing.player.variant,
       source = lila.game.Source.Simul,
       pgnImport = None
     )
     game2 = game1
-      .updatePlayer(chess.White, _.withUser(whiteUser.id, lila.game.PerfPicker.mainOrDefault(game1)(whiteUser.perfs)))
-      .updatePlayer(chess.Black, _.withUser(blackUser.id, lila.game.PerfPicker.mainOrDefault(game1)(blackUser.perfs)))
-      .withSimulId(simul.id)
       .withId(pairing.gameId)
+      .withSimulId(simul.id)
       .start
     _ ← (GameRepo insertDenormalized game2) >>-
       onGameStart(game2.id) >>-
@@ -195,7 +214,7 @@ private[simul] final class SimulApi(
   private def WithSimul(
     finding: Simul.ID => Fu[Option[Simul]],
     simulId: Simul.ID
-  )(updating: Simul => Simul) {
+  )(updating: Simul => Simul): Unit = {
     Sequence(simulId) {
       finding(simulId) flatMap {
         _ ?? { simul => update(updating(simul)) }
@@ -203,9 +222,8 @@ private[simul] final class SimulApi(
     }
   }
 
-  private def Sequence(simulId: Simul.ID)(work: => Funit) {
-    sequencers ! Tell(simulId, lila.hub.Sequencer work work)
-  }
+  private def Sequence(simulId: Simul.ID)(fu: => Funit): Unit =
+    sequencers.tell(simulId, Duct.extra.LazyFu(() => fu))
 
   private object publish {
     private val siteMessage = SendToFlag("simul", Json.obj("t" -> "reload"))
@@ -218,14 +236,14 @@ private[simul] final class SimulApi(
           } pipeToSelection lobby
         }
     })))
-    def apply() { debouncer ! Debouncer.Nothing }
+    def apply(): Unit = { debouncer ! Debouncer.Nothing }
   }
 
-  private def sendTo(simulId: Simul.ID, msg: Any) {
+  private def sendTo(simulId: Simul.ID, msg: Any): Unit = {
     socketHub ! Tell(simulId, msg)
   }
 
-  private def socketReload(simulId: Simul.ID) {
+  private def socketReload(simulId: Simul.ID): Unit = {
     sendTo(simulId, actorApi.Reload)
   }
 }

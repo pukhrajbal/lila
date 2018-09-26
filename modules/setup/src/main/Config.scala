@@ -1,6 +1,8 @@
 package lila.setup
 
-import chess.{ Game => ChessGame, Board, Situation, Clock, Speed }
+import chess.{ Game => ChessGame, Situation, Clock, Speed }
+import chess.variant.FromPosition
+import chess.format.FEN
 
 import lila.game.Game
 import lila.lobby.Color
@@ -30,18 +32,18 @@ private[setup] trait Config {
   lazy val creatorColor = color.resolve
 
   def makeGame(v: chess.variant.Variant): ChessGame =
-    ChessGame(board = Board init v, clock = makeClock.map(_.toClock))
+    ChessGame(situation = Situation(v), clock = makeClock.map(_.toClock))
 
   def makeGame: ChessGame = makeGame(variant)
 
-  def validClock = hasClock.fold(clockHasTime, true)
+  def validClock = !hasClock || clockHasTime
 
   def clockHasTime = time + increment > 0
 
   def makeClock = hasClock option justMakeClock
 
   protected def justMakeClock =
-    Clock.Config((time * 60).toInt, clockHasTime.fold(increment, 1))
+    Clock.Config((time * 60).toInt, if (clockHasTime) increment else 1)
 
   def makeDaysPerTurn: Option[Int] = (timeMode == TimeMode.Correspondence) option days
 }
@@ -50,21 +52,22 @@ trait Positional { self: Config =>
 
   import chess.format.Forsyth, Forsyth.SituationPlus
 
-  def fen: Option[String]
+  def fen: Option[FEN]
 
   def strictFen: Boolean
 
-  lazy val validFen = variant != chess.variant.FromPosition || {
-    fen ?? { f => ~(Forsyth <<< f).map(_.situation playable strictFen) }
+  lazy val validFen = variant != FromPosition || {
+    fen ?? { f => ~(Forsyth <<< f.value).map(_.situation playable strictFen) }
   }
 
   def fenGame(builder: ChessGame => Game): Game = {
-    val baseState = fen ifTrue (variant == chess.variant.FromPosition) flatMap Forsyth.<<<
+    val baseState = fen ifTrue (variant.fromPosition) flatMap { f =>
+      Forsyth.<<<@(FromPosition, f.value)
+    }
     val (chessGame, state) = baseState.fold(makeGame -> none[SituationPlus]) {
-      case sit @ SituationPlus(Situation(board, color), _) =>
+      case sit @ SituationPlus(s, _) =>
         val game = ChessGame(
-          board = board,
-          player = color,
+          situation = s,
           turns = sit.turns,
           startedAtTurn = sit.turns,
           clock = makeClock.map(_.toClock)
@@ -75,12 +78,15 @@ trait Positional { self: Config =>
     val game = builder(chessGame)
     state.fold(game) {
       case sit @ SituationPlus(Situation(board, _), _) => game.copy(
-        variant = chess.variant.FromPosition,
-        castleLastMoveTime = game.castleLastMoveTime.copy(
-          lastMove = board.history.lastMove.map(_.origDest),
-          castles = board.history.castles
-        ),
-        turns = sit.turns
+        chess = game.chess.copy(
+          situation = game.situation.copy(
+            board = game.board.copy(
+              history = board.history,
+              variant = FromPosition
+            )
+          ),
+          turns = sit.turns
+        )
       )
     }
   }
@@ -92,7 +98,7 @@ trait BaseConfig {
   val variants = List(chess.variant.Standard.id, chess.variant.Chess960.id)
   val variantDefault = chess.variant.Standard
 
-  val variantsWithFen = variants :+ chess.variant.FromPosition.id
+  val variantsWithFen = variants :+ FromPosition.id
   val aiVariants = variants :+
     chess.variant.Crazyhouse.id :+
     chess.variant.KingOfTheHill.id :+
@@ -112,7 +118,7 @@ trait BaseConfig {
       chess.variant.Horde.id :+
       chess.variant.RacingKings.id
   val variantsWithFenAndVariants =
-    variantsWithVariants :+ chess.variant.FromPosition.id
+    variantsWithVariants :+ FromPosition.id
 
   val speeds = Speed.all map (_.id)
 

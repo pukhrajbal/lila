@@ -25,7 +25,7 @@ final class LateMultiThrottler(
         timeoutOption.orElse(executionTimeout).fold(run()) { timeout =>
           run().withTimeout(
             duration = timeout,
-            error = lila.common.LilaException(s"LateMultiThrottler timed out after $timeout")
+            error = lila.base.LilaException(s"LateMultiThrottler timed out after $timeout")
           )
         } addEffectAnyway {
           self ! Done(id)
@@ -45,10 +45,10 @@ final class LateMultiThrottler(
 object LateMultiThrottler {
 
   case class Work(
-    id: String,
-    run: () => Funit,
-    delay: Option[FiniteDuration], // how long to wait before running
-    timeout: Option[FiniteDuration]
+      id: String,
+      run: () => Funit,
+      delay: Option[FiniteDuration], // how long to wait before running
+      timeout: Option[FiniteDuration]
   ) // how long to wait before timing out
 
   case class Done(id: String)

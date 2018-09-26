@@ -20,12 +20,12 @@ private[simul] final class Socket(
     socketTimeout: Duration
 ) extends SocketActor[Member](uidTimeout) with Historical[Member, Messadata] {
 
-  override def preStart() {
+  override def preStart(): Unit = {
     super.preStart()
-    lilaBus.subscribe(self, Symbol(s"chat-$simulId"))
+    lilaBus.subscribe(self, Symbol(s"chat:$simulId"))
   }
 
-  override def postStop() {
+  override def postStop(): Unit = {
     super.postStop()
     lilaBus.unsubscribe(self)
   }
@@ -34,7 +34,7 @@ private[simul] final class Socket(
 
   private var delayedCrowdNotification = false
 
-  private def redirectPlayer(game: lila.game.Game, colorOption: Option[chess.Color]) {
+  private def redirectPlayer(game: lila.game.Game, colorOption: Option[chess.Color]): Unit = {
     colorOption foreach { color =>
       val player = game player color
       player.userId foreach { userId =>
@@ -64,29 +64,29 @@ private[simul] final class Socket(
 
     case Aborted => notifyVersion("aborted", Json.obj(), Messadata())
 
-    case PingVersion(uid, v) => {
-      ping(uid)
+    case Ping(uid, vOpt, c) =>
+      ping(uid, c)
       timeBomb.delay
-      withMember(uid) { m =>
-        history.since(v).fold(resync(m))(_ foreach sendMessage(m))
-      }
-    }
+      pushEventsSinceForMobileBC(vOpt, uid)
 
     case Broom => {
       broom
       if (timeBomb.boom) self ! PoisonPill
     }
 
-    case GetVersion => sender ! history.version
+    case lila.socket.Socket.GetVersion => sender ! history.version
 
     case Socket.GetUserIds => sender ! members.values.flatMap(_.userId)
 
-    case Join(uid, user) =>
+    case Join(uid, user, version) =>
       val (enumerator, channel) = Concurrent.broadcast[JsValue]
       val member = Member(channel, user)
-      addMember(uid.value, member)
+      addMember(uid, member)
       notifyCrowd
-      sender ! Connected(enumerator, member)
+      sender ! Connected(
+        prependEventsSince(version, enumerator, member),
+        member
+      )
 
     case Quit(uid) =>
       quit(uid)
@@ -100,7 +100,7 @@ private[simul] final class Socket(
     send = (t, d, trollish) => notifyVersion(t, d, Messadata(trollish))
   )
 
-  def notifyCrowd {
+  def notifyCrowd: Unit = {
     if (!delayedCrowdNotification) {
       delayedCrowdNotification = true
       context.system.scheduler.scheduleOnce(500 millis, self, NotifyCrowd)

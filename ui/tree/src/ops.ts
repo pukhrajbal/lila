@@ -17,7 +17,7 @@ export function findInMainline(fromNode: Tree.Node, predicate: (node: Tree.Node)
 
 // returns a list of nodes collected from the original one
 export function collect(from: Tree.Node, pickChild: (node: Tree.Node) => Tree.Node | undefined): Tree.Node[] {
-  var nodes = [from], n = from, c;
+  let nodes = [from], n = from, c;
   while(c = pickChild(n)) {
     nodes.push(c);
     n = c;
@@ -42,8 +42,8 @@ export function nodeAtPly(nodeList: Tree.Node[], ply: number): Tree.Node | undef
 }
 
 export function takePathWhile(nodeList: Tree.Node[], predicate: (node: Tree.Node) => boolean): Tree.Path {
-  var path = '';
-  for (var i in nodeList) {
+  let path = '';
+  for (let i in nodeList) {
     if (predicate(nodeList[i])) path += nodeList[i].id;
     else break;
   }
@@ -57,24 +57,24 @@ export function removeChild(parent: Tree.Node, id: string): void {
 }
 
 export function countChildrenAndComments(node: Tree.Node) {
-  var count = {
+  const count = {
     nodes: 1,
     comments: (node.comments || []).length
   };
   node.children.forEach(function(child) {
-    var c = countChildrenAndComments(child);
+    const c = countChildrenAndComments(child);
     count.nodes += c.nodes;
     count.comments += c.comments;
   });
   return count;
 }
 
-export function reconstruct(parts: any): Node {
-  var root = parts[0],
-    node = root;
+export function reconstruct(parts: any): Tree.Node {
+  const root = parts[0], nb = parts.length;
+  let node = root, i: number;
   root.id = '';
-  for (var i = 1, nb = parts.length; i < nb; i++) {
-    var n = parts[i];
+  for (i = 1; i < nb; i++) {
+    const n = parts[i];
     if (node.children) node.children.unshift(n);
     else node.children = [n];
     node = n;
@@ -90,19 +90,19 @@ export function merge(n1: Tree.Node, n2: Tree.Node): void {
   n2.comments && n2.comments.forEach(function(c) {
     if (!n1.comments) n1.comments = [c];
     else if (!n1.comments.filter(function(d) {
-        return d.text === c.text;
-      }).length) n1.comments.push(c);
+      return d.text === c.text;
+    }).length) n1.comments.push(c);
   });
   n2.children.forEach(function(c) {
-    var existing = childById(n1, c.id);
+    const existing = childById(n1, c.id);
     if (existing) merge(existing, c);
     else n1.children.push(c);
   });
 }
 
 export function hasBranching(node: Tree.Node, maxDepth: number): boolean {
-  return maxDepth <= 0 || node.children[1] ? true : (
-    node.children[0] ? hasBranching(node.children[0], maxDepth - 1) : false
+  return maxDepth <= 0 || !!node.children[1] || (
+    node.children[0] && hasBranching(node.children[0], maxDepth - 1)
   );
 }
 
@@ -112,7 +112,7 @@ export function mainlineNodeList(from: Tree.Node): Tree.Node[] {
 
 export function updateAll(root: Tree.Node, f: (node: Tree.Node) => void): void {
   // applies f recursively to all nodes
-  var update = function(node: Tree.Node) {
+  function update(node: Tree.Node) {
     f(node);
     node.children.forEach(update);
   };

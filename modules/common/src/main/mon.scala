@@ -12,9 +12,16 @@ object mon {
     object request {
       val all = inc("http.request.all")
       val ipv6 = inc("http.request.ipv6")
+      val xhr = inc("http.request.xhr")
+      val ws = inc("http.request.ws")
+      val bot = inc("http.request.bot")
+      val fishnet = inc("http.request.fishnet")
+      val page = inc("http.request.page")
+      def path(p: String) = inc(s"http.request.path.$p")
     }
     object response {
       val code400 = inc("http.response.4.00")
+      val code403 = inc("http.response.4.03")
       val code404 = inc("http.response.4.04")
       val code500 = inc("http.response.5.00")
       val home = rec("http.response.home")
@@ -53,6 +60,9 @@ object mon {
       val forbidden = inc("http.csrf.forbidden")
       val websocket = inc("http.csrf.websocket")
     }
+  }
+  object mobile {
+    def version(v: String) = inc(s"mobile.version.$v")
   }
   object syncache {
     def miss(name: String) = inc(s"syncache.miss.$name")
@@ -142,7 +152,6 @@ object mon {
   object round {
     object api {
       val player = rec("round.api.player")
-      val playerInner = rec("round.api.player_inner")
       val watcher = rec("round.api.watcher")
     }
     object actor {
@@ -158,7 +167,17 @@ object mon {
       object trace {
         def create = makeTrace("round.move.trace")
       }
-      val networkLag = rec("round.move.network_lag")
+      object lag {
+        val compDeviation = rec("round.move.lag.comp_deviation")
+        def uncomped(key: String) = rec(s"round.move.lag.uncomped_ms.$key")
+        val uncompedAll = rec(s"round.move.lag.uncomped_ms.all")
+        def uncompStdDev(key: String) = rec(s"round.move.lag.uncomp_stdev_ms.$key")
+        val stdDev = rec(s"round.move.lag.stddev_ms")
+        val mean = rec(s"round.move.lag.mean_ms")
+        val coefVar = rec(s"round.move.lag.coef_var_1000")
+        val compEstStdErr = rec(s"round.move.lag.comp_est_stderr_1000")
+        val compEstOverErr = rec("round.move.lag.avg_over_error_ms")
+      }
     }
     object error {
       val client = inc("round.error.client")
@@ -174,6 +193,16 @@ object mon {
     object alarm {
       val time = rec("round.alarm.time")
       val count = rec("round.alarm.count")
+    }
+    object expiration {
+      val count = inc("round.expiration.count")
+    }
+  }
+  object playban {
+    def outcome(out: String) = inc(s"playban.outcome.$out")
+    object ban {
+      val count = inc("playban.ban.count")
+      val mins = incX("playban.ban.mins")
     }
   }
   object explorer {
@@ -223,24 +252,63 @@ object mon {
     object register {
       val website = inc("user.register.website")
       val mobile = inc("user.register.mobile")
-      def mustConfirmEmail(v: Boolean) = inc(s"user.register.must_confirm_email.$v")
+      def mustConfirmEmail(v: String) = inc(s"user.register.must_confirm_email.$v")
       def confirmEmailResult(v: Boolean) = inc(s"user.register.confirm_email.$v")
+      val modConfirmEmail = inc(s"user.register.mod_confirm_email")
+    }
+    object auth {
+      val bcFullMigrate = inc("user.auth.bc_full_migrate")
+      val hashTime = rec("user.auth.hash_time")
+      val hashTimeInc = incX("user.auth.hash_time_inc")
+      def result(v: Boolean) = inc(s"user.auth.result.$v")
+
+      def passwordResetRequest(s: String) = inc(s"user.auth.password_reset_request.$s")
+      def passwordResetConfirm(s: String) = inc(s"user.auth.password_reset_confirm.$s")
+    }
+    object oauth {
+      object usage {
+        val success = inc("user.oauth.usage.success")
+        val failure = inc("user.oauth.usage.success")
+      }
     }
   }
   object socket {
     val member = rec("socket.count")
     val open = inc("socket.open")
     val close = inc("socket.close")
+    def eject(userId: String) = inc(s"socket.eject.user.$userId")
+    val ejectAll = inc(s"socket.eject.all")
   }
   object mod {
     object report {
       val unprocessed = rec("mod.report.unprocessed")
       val close = inc("mod.report.close")
       def create(reason: String) = inc(s"mod.report.create.$reason")
+      def discard(reason: String) = inc(s"mod.report.discard.$reason")
     }
     object log {
       val create = inc("mod.log.create")
     }
+    object irwin {
+      val report = inc("mod.report.irwin.report")
+      val mark = inc("mod.report.irwin.mark")
+      def ownerReport(name: String) = inc(s"mod.irwin.owner_report.$name")
+      def streamEventType(name: String) = inc(s"mod.irwin.streama.event_type.$name") // yes there's a typo
+    }
+  }
+  object relay {
+    val ongoing = rec("relay.ongoing")
+    val moves = incX("relay.moves")
+    object sync {
+      def result(res: String) = inc(s"relay.sync.result.$res")
+      object duration {
+        val each = rec("relay.sync.duration.each")
+      }
+    }
+  }
+  object bot {
+    def moves(username: String) = inc(s"bot.moves.$username")
+    def chats(username: String) = inc(s"bot.chats.$username")
   }
   object cheat {
     val cssBot = inc("cheat.css_bot")
@@ -257,6 +325,8 @@ object mon {
   }
   object email {
     val resetPassword = inc("email.reset_password")
+    val fix = inc("email.fix")
+    val change = inc("email.change")
     val confirmation = inc("email.confirmation")
     val disposableDomain = rec("email.disposable_domain")
   }
@@ -278,6 +348,9 @@ object mon {
     }
     object rateLimit {
       def generic(key: String) = inc(s"security.rate_limit.generic.$key")
+    }
+    object linearLimit {
+      def generic(key: String) = inc(s"security.linear_limit.generic.$key")
     }
   }
   object tv {
@@ -315,11 +388,6 @@ object mon {
       val tickTime = rec("tournament.created_organizer.tick_time")
     }
   }
-  object donation {
-    val goal = rec("donation.goal")
-    val current = rec("donation.current")
-    val percent = rec("donation.percent")
-  }
   object plan {
     object amount {
       val paypal = incX("plan.amount.paypal")
@@ -346,6 +414,13 @@ object mon {
       val count = inc("puzzle.selector")
       val time = rec("puzzle.selector")
       def vote(v: Int) = rec("puzzle.selector.vote")(1000 + v) // vote sum of selected puzzle
+    }
+    object batch {
+      object selector {
+        val count = incX("puzzle.batch.selector")
+        val time = rec("puzzle.batch.selector")
+      }
+      val solve = incX("puzzle.batch.solve")
     }
     object round {
       val user = inc("puzzle.attempt.user")
@@ -374,6 +449,24 @@ object mon {
       def source(v: String) = inc(s"game.create.source.$v")
       def mode(v: String) = inc(s"game.create.mode.$v")
     }
+    val fetch = inc("game.fetch.count")
+    val fetchLight = inc("game.fetchLight.count")
+    val loadClockHistory = inc("game.loadClockHistory.count")
+    object pgn {
+      final class Protocol(name: String) {
+        val count = inc(s"game.pgn.$name.count")
+        val time = rec(s"game.pgn.$name.time")
+      }
+      object oldBin {
+        val encode = new Protocol("oldBin.encode")
+        val decode = new Protocol("oldBin.decode")
+      }
+      object huffman {
+        val encode = new Protocol("huffman.encode")
+        val decode = new Protocol("huffman.decode")
+      }
+    }
+    val idCollision = inc("game.id_collision")
   }
   object chat {
     val message = inc("chat.message")
@@ -385,6 +478,7 @@ object mon {
     }
     object send {
       def move(platform: String) = inc(s"push.send.$platform.move")()
+      def takeback(platform: String) = inc(s"push.send.$platform.takeback")()
       def corresAlarm(platform: String) = inc(s"push.send.$platform.corresAlarm")()
       def finish(platform: String) = inc(s"push.send.$platform.finish")()
       def message(platform: String) = inc(s"push.send.$platform.message")()
@@ -453,12 +547,10 @@ object mon {
       }
       val post = rec("fishnet.analysis.post")
       val requestCount = inc("fishnet.analysis.request")
+      val evalCacheHits = rec("fishnet.analysis.eval_cache_hits")
     }
   }
   object api {
-    object teamUsers {
-      val cost = incX("api.team-users.cost")
-    }
     object userGames {
       val cost = incX("api.user-games.cost")
     }
@@ -467,6 +559,9 @@ object mon {
     }
     object game {
       val cost = incX("api.game.cost")
+    }
+    object activity {
+      val cost = incX("api.activity.cost")
     }
   }
   object export {
@@ -482,13 +577,19 @@ object mon {
     def pdf = inc("export.pdf.game")
   }
 
-  def measure[A](path: RecPath)(op: => A) = {
+  object jsmon {
+    val socketGap = inc("jsmon.socket_gap")
+    val unknown = inc("jsmon.unknown")
+  }
+
+  def measure[A](path: RecPath)(op: => A): A = measureRec(path(this))(op)
+  def measureRec[A](rec: Rec)(op: => A): A = {
     val start = System.nanoTime()
     val res = op
-    path(this)(System.nanoTime() - start)
+    rec(System.nanoTime() - start)
     res
   }
-  def measureIncMicros[A](path: IncXPath)(op: => A) = {
+  def measureIncMicros[A](path: IncXPath)(op: => A): A = {
     val start = System.nanoTime()
     val res = op
     path(this)(((System.nanoTime() - start) / 1000).toInt)
@@ -524,6 +625,7 @@ object mon {
       else hist.record(value)
     }
   }
+
   // to record Double rates [0..1],
   // we multiply by 100,000 and convert to Int [0..100000]
   private def rate(name: String): Rate = {
@@ -542,8 +644,6 @@ object mon {
 
   trait Trace {
 
-    def finishFirstSegment(): Unit
-
     def segment[A](name: String, categ: String)(f: => Future[A]): Future[A]
 
     def segmentSync[A](name: String, categ: String)(f: => A): A
@@ -552,11 +652,8 @@ object mon {
   }
 
   private final class KamonTrace(
-      context: TraceContext,
-      firstSegment: Segment
+      context: TraceContext
   ) extends Trace {
-
-    def finishFirstSegment() = firstSegment.finish()
 
     def segment[A](name: String, categ: String)(code: => Future[A]): Future[A] =
       context.withNewAsyncSegment(name, categ, "mon")(code)
@@ -576,13 +673,12 @@ object mon {
       status = Status.Open,
       isLocal = false
     )
-    val firstSegment = context.startSegment(firstName, "logic", "mon")
-    new KamonTrace(context, firstSegment)
+    new KamonTrace(context)
   }
 
   private val stripVersionRegex = """[^\w\.\-]""".r
   private def stripVersion(v: String) = stripVersionRegex.replaceAllIn(v, "")
-  private def nodots(s: String) = s.replace(".", "_")
+  private def nodots(s: String) = s.replace('.', '_')
   private val makeVersion = nodots _ compose stripVersion _
 
   private val logger = lila.log("monitor")

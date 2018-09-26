@@ -31,8 +31,11 @@ trait ForumHelper { self: UserHelper with StringHelper =>
   def authorLink(
     post: Post,
     cssClass: Option[String] = None,
-    withOnline: Boolean = true
-  ) = post.userId.fold(Html(lila.user.User.anonymous)) { userId =>
-    userIdLink(userId.some, cssClass = cssClass, withOnline = withOnline)
-  }
+    withOnline: Boolean = true,
+    modIcon: Boolean = false
+  ) =
+    if (post.erased) Html(s"""<span class="author">${lila.common.String.erasedHtml}</span>""")
+    else post.userId.fold(Html(lila.user.User.anonymous)) { userId =>
+      userIdLink(userId.some, cssClass = cssClass, withOnline = withOnline, modIcon = modIcon)
+    }
 }

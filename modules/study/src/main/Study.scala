@@ -28,9 +28,10 @@ case class Study(
 
   def isMember(id: User.ID) = members contains id
 
-  def canChat = isMember _
+  def canChat(id: User.ID) = Settings.UserSelection.allows(settings.chat, this, id.some)
 
-  def canContribute(id: User.ID) = isOwner(id) || members.get(id).exists(_.canContribute)
+  def canContribute(id: User.ID) =
+    isOwner(id) || members.get(id).exists(_.canContribute) || id == User.lichessId
 
   def isCurrent(c: Chapter.Like) = c.id == position.chapterId
 
@@ -40,10 +41,12 @@ case class Study(
     copy(position = Position.Ref(chapterId = c.id, path = Path.root))
 
   def isPublic = visibility == Study.Visibility.Public
+  def isUnlisted = visibility == Study.Visibility.Unlisted
+  def isPrivate = visibility == Study.Visibility.Private
 
   def isNew = (nowSeconds - createdAt.getSeconds) < 4
 
-  def isOld = (nowSeconds - updatedAt.getSeconds) > 10 * 60
+  def isOld = (nowSeconds - updatedAt.getSeconds) > 20 * 60
 
   def cloneFor(user: User): Study = {
     val owner = StudyMember(
@@ -72,6 +75,8 @@ case class Study(
 
 object Study {
 
+  val maxChapters = 64
+
   case class Id(value: String) extends AnyVal with StringValue
   implicit val idIso = lila.common.Iso.string[Id](Id.apply, _.value)
 
@@ -90,8 +95,9 @@ object Study {
   }
   object Visibility {
     case object Private extends Visibility
+    case object Unlisted extends Visibility
     case object Public extends Visibility
-    val byKey = List(Private, Public).map { v => v.key -> v }.toMap
+    val byKey = List(Private, Unlisted, Public).map { v => v.key -> v }.toMap
   }
 
   case class Likes(value: Int) extends AnyVal
@@ -113,6 +119,7 @@ object Study {
     case object Scratch extends From
     case class Game(id: String) extends From
     case class Study(id: Id) extends From
+    case class Relay(clonedFrom: Option[Id]) extends From
   }
 
   case class Data(
@@ -120,7 +127,9 @@ object Study {
       visibility: String,
       computer: String,
       explorer: String,
-      cloneable: String
+      cloneable: String,
+      chat: String,
+      sticky: String
   ) {
     import Settings._
     def vis = Visibility.byKey get visibility getOrElse Visibility.Public
@@ -128,7 +137,9 @@ object Study {
       comp <- UserSelection.byKey get computer
       expl <- UserSelection.byKey get explorer
       clon <- UserSelection.byKey get cloneable
-    } yield Settings(comp, expl, clon)
+      chat <- UserSelection.byKey get chat
+      stic = sticky == "true"
+    } yield Settings(comp, expl, clon, chat, stic)
   }
 
   case class WithChapter(study: Study, chapter: Chapter)
@@ -139,26 +150,28 @@ object Study {
 
   case class WithChaptersAndLiked(study: Study, chapters: Seq[Chapter.Name], liked: Boolean)
 
+  case class WithLiked(study: Study, liked: Boolean)
+
   case class LightStudy(isPublic: Boolean, contributors: Set[User.ID])
 
   val idSize = 8
 
   def makeId = Id(scala.util.Random.alphanumeric take idSize mkString)
 
-  def make(user: User, from: From) = {
+  def make(user: User, from: From, id: Option[Study.Id] = None, name: Option[Name] = None, settings: Option[Settings] = None) = {
     val owner = StudyMember(
       id = user.id,
       role = StudyMember.Role.Write,
       addedAt = DateTime.now
     )
     Study(
-      _id = makeId,
-      name = Name(s"${user.username}'s Study"),
+      _id = id | makeId,
+      name = name | Name(s"${user.username}'s Study"),
       members = StudyMembers(Map(user.id -> owner)),
       position = Position.Ref(Chapter.Id(""), Path.root),
       ownerId = user.id,
       visibility = Visibility.Public,
-      settings = Settings.init,
+      settings = settings | Settings.init,
       from = from,
       likes = Likes(1),
       createdAt = DateTime.now,

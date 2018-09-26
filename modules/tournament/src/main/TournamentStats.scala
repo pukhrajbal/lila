@@ -1,6 +1,5 @@
 package lila.tournament
 
-import reactivemongo.api.collections.bson.BSONBatchCommands.AggregationFramework._
 import reactivemongo.bson.Macros
 import scala.concurrent.duration._
 
@@ -29,13 +28,13 @@ final class TournamentStatsApi(mongoCache: lila.memo.MongoCache.Builder) {
 }
 
 case class TournamentStats(
-  games: Int,
-  moves: Int,
-  whiteWins: Int,
-  blackWins: Int,
-  draws: Int,
-  berserks: Int,
-  averageRating: Int
+    games: Int,
+    moves: Int,
+    whiteWins: Int,
+    blackWins: Int,
+    draws: Int,
+    berserks: Int,
+    averageRating: Int
 )
 
 private object TournamentStats {

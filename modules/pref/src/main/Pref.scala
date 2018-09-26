@@ -1,7 +1,5 @@
 package lila.pref
 
-import lila.user.User
-
 case class Pref(
     _id: String, // user id
     dark: Boolean,
@@ -36,6 +34,7 @@ case class Pref(
     confirmResign: Int,
     insightShare: Int,
     keyboardMove: Int,
+    zen: Int,
     rookCastle: Int,
     moveEvent: Int,
     pieceNotation: Int,
@@ -68,6 +67,7 @@ case class Pref(
     case "pieceSet3d" => PieceSet3d.allByName get value map { p => copy(pieceSet3d = p.name) }
     case "is3d" => copy(is3d = value == "true").some
     case "soundSet" => SoundSet.allByKey get value map { s => copy(soundSet = s.name) }
+    case "zen" => copy(zen = if (value == "1") 1 else 0).some
     case _ => none
   }
 
@@ -84,6 +84,8 @@ case class Pref(
   def bgImgOrDefault = bgImg | Pref.defaultBgImg
 
   def pieceNotationIsLetter = pieceNotation == PieceNotation.LETTER
+
+  def isZen = zen == Zen.YES
 }
 
 object Pref {
@@ -94,6 +96,10 @@ object Pref {
     val NO = 0
     val YES = 1
     val choices = Seq(NO -> "No", YES -> "Yes")
+  }
+
+  object BooleanPref {
+    val verify = (v: Int) => v == 0 || v == 1
   }
 
   object Tag {
@@ -281,16 +287,6 @@ object Pref {
       FRIEND -> "Only friends",
       ALWAYS -> "Always"
     )
-
-    def block(from: User, to: User, pref: Int, follow: Boolean, fromCheat: Boolean): Option[String] = pref match {
-      case NEVER => "{{user}} doesn't accept challenges.".some
-      case _ if fromCheat && !follow => "{{user}} only accepts challenges from friends.".some
-      case RATING if from.perfs.bestRating > to.perfs.bestRating => none
-      case RATING if math.abs(from.perfs.bestRating - to.perfs.bestRating) > ratingThreshold =>
-        s"{{user}} only accepts challenges if rating is ± $ratingThreshold.".some
-      case FRIEND if !follow => "{{user}} only accepts challenges from friends.".some
-      case _ => none
-    }
   }
 
   object Message {
@@ -315,6 +311,9 @@ object Pref {
       FRIEND -> "Only friends",
       ALWAYS -> "Always"
     )
+  }
+
+  object Zen extends BooleanPref {
   }
 
   def create(id: String) = default.copy(_id = id)
@@ -353,33 +352,12 @@ object Pref {
     confirmResign = ConfirmResign.YES,
     insightShare = InsightShare.FRIENDS,
     keyboardMove = KeyboardMove.NO,
+    zen = Zen.NO,
     rookCastle = RookCastle.YES,
     moveEvent = MoveEvent.BOTH,
     pieceNotation = PieceNotation.SYMBOL,
     tags = Map.empty
   )
-
-  def fromRequest(req: play.api.mvc.RequestHeader): Pref = {
-
-    def queryPref(name: String): Option[String] =
-      req.queryString.get(name).flatMap(_.headOption).filter { v =>
-        v.nonEmpty && v != "auto"
-      } orElse req.session.get(name)
-
-    val bg = queryPref("bg") | "light"
-
-    default.copy(
-      dark = bg != "light",
-      transp = bg == "transp",
-      theme = queryPref("theme") | default.theme,
-      theme3d = req.session.data.getOrElse("theme3d", default.theme3d),
-      pieceSet = req.session.data.getOrElse("pieceSet", default.pieceSet),
-      pieceSet3d = req.session.data.getOrElse("pieceSet3d", default.pieceSet3d),
-      soundSet = req.session.data.getOrElse("soundSet", default.soundSet),
-      bgImg = req.session.data.get("bgImg"),
-      is3d = req.session.data.get("is3d") has "true"
-    )
-  }
 
   import ornicar.scalalib.Zero
   implicit def PrefZero: Zero[Pref] = Zero.instance(default)

@@ -3,9 +3,7 @@
 @gamePlayer(variant: chess.variant.Variant, player: Player) = {
 <div class="player @player.color.name">
   @player.playerUser.map { playerUser =>
-  <a href="@routes.User.show(playerUser.id)" class="user_link ulpt">
-    @usernameOrId(playerUser.id)
-  </a>
+  @userIdLink(playerUser.id.some, withOnline = false)
   <br />
   @if(player.berserk) { @berserkIconSpanHtml }
   @playerUser.rating@if(player.provisional) {?}
@@ -50,16 +48,16 @@
         } else {
         @g.clock.map(_.config.show).getOrElse {
         @g.daysPerTurn.map { days =>
-        <span data-hint="@trans.correspondence()" class="hint--top">@if(days == 1) {@trans.oneDay()} else {@trans.nbDays(days)}</span>
+        <span data-hint="@trans.correspondence()" class="hint--top">@if(days == 1) {@trans.oneDay()} else {@trans.nbDays.pluralSame(days)}</span>
         }.getOrElse {
         <span data-hint="@trans.unlimited()" class="hint--top">∞</span>
         }
         }
         • @g.perfType.map(_.name).getOrElse {@chess.variant.FromPosition.name}
-        • @g.rated.fold(trans.rated(), trans.casual())
+        • @if(g.rated){@trans.rated()}else{@trans.casual()}
         }
       </strong>
-      @g.pgnImport.flatMap(_.date).getOrElse(momentFormat(g.createdAt))
+      @g.pgnImport.flatMap(_.date).getOrElse(momentFromNow(g.createdAt))
       @g.tournamentId.map { tourId =>
       • @tournamentLink(tourId)
       }
@@ -75,7 +73,7 @@
     <div class="result">
       @if(g.isBeingPlayed) {@trans.playingRightNow()} else {
       @if(g.finishedOrAborted) {
-      <span class="@{ g.winner.flatMap(w => fromPlayer.map(p => (p == w).fold("up", "down"))) }">
+      <span class="@{ g.winner.flatMap(w => fromPlayer.map(p => if (p == w) "up" else "down")) }">
         @gameEndStatus(g)@g.winner.map { winner =>, @winner.color.fold(trans.whiteIsVictorious(), trans.blackIsVictorious()) }
       </span>
       } else {
@@ -84,15 +82,15 @@
       }
     </div>
     @if(g.turns > 0) {
-    @defining(g openingPgnMoves 20) { pgnMoves =>
+    @defining(g.pgnMoves take 20) { pgnMoves =>
     @if(!g.fromPosition) {
     @g.opening.map { opening =>
     <div class="opening">@opening.opening.ecoName</div>
     }
     }
     <div class="pgn">@pgnMoves.take(6).grouped(2).zipWithIndex.map {
-      case (List(w, b), i) => {@(i+1). @w @b}
-      case (List(w), i) => {@(i+1). @w}
+      case (Vector(w, b), i) => {@(i+1). @w @b}
+      case (Vector(w), i) => {@(i+1). @w}
       case _ => {}
       }.mkString(" ")@if(g.turns > 6) { ... @{1 + (g.turns - 1) / 2} moves }
     </div>
@@ -101,7 +99,7 @@
     <br /><br />
     }
     <div class="metadata">
-      @if(g.metadata.analysed) {<span data-icon="&#xe004;"> Computer analysis available</span><br />}
+      @if(g.metadata.analysed) {<span data-icon="&#xe004;"> @trans.computerAnalysisAvailable()</span><br />}
       @g.pgnImport.flatMap(_.user).map { user =>
       PGN import by @userIdLink(user.some)<br />
       }

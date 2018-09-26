@@ -29,18 +29,29 @@ function studyButton(ctrl, fen) {
       value: ctrl.bottomColor()
     }),
     m('input[type=hidden][name=variant]', {
-      value: 'standard'
+      value: ctrl.data.variant
     }),
     m('input[type=hidden][name=fen]', {
       value: fen
     }),
     m('button.button.text', {
       type: 'submit',
-      'data-icon': '',
+      'data-icon': '4',
       disabled: !ctrl.positionLooksLegit()
     },
     'Study')
   ]);
+}
+
+function variant2option(key, name, ctrl) {
+  return {
+    tag: 'option',
+    attrs: {
+      value: key,
+      selected: key == ctrl.data.variant
+    },
+    children: [ctrl.trans('variant') + ' | ' + name]
+  };
 }
 
 function controls(ctrl, fen) {
@@ -53,9 +64,10 @@ function controls(ctrl, fen) {
         value: pos.fen,
         selected: currentPosition && currentPosition.fen === pos.fen
       },
-      children: [pos.eco ? pos.eco + " " + pos.name : pos.name]
+      children: [pos.eco ? pos.eco + ' ' + pos.name : pos.name]
     };
   };
+  var selectedVariant = ctrl.data.variant;
   var looksLegit = ctrl.positionLooksLegit();
   return m('div.editor-side', [
     ctrl.embed ? null : m('div', [
@@ -64,14 +76,14 @@ function controls(ctrl, fen) {
           ctrl.loadNewFen(e.target.value);
         }
       }, [
-        optgroup('Set the board', [
+        optgroup(ctrl.trans('setTheBoard'), [
           currentPosition ? null : m('option', {
             value: fen,
             selected: true
-          }, '- Position -'),
+          }, '- ' + ctrl.trans('boardEditor') + ' -'),
           ctrl.extraPositions.map(position2option)
         ]),
-        optgroup('Popular openings',
+        optgroup(ctrl.trans('popularOpenings'),
           ctrl.data.positions.map(position2option)
         )
       ]) : null
@@ -91,13 +103,30 @@ function controls(ctrl, fen) {
         m('strong', ctrl.trans('castling')),
         m('div', [
           castleCheckBox(ctrl, 'K', ctrl.trans('whiteCastlingKingside'), ctrl.options.inlineCastling),
-          castleCheckBox(ctrl, 'Q', ctrl.trans('whiteCastlingQueenside'), true)
+          castleCheckBox(ctrl, 'Q', 'O-O-O', true)
         ]),
         m('div', [
           castleCheckBox(ctrl, 'k', ctrl.trans('blackCastlingKingside'), ctrl.options.inlineCastling),
-          castleCheckBox(ctrl, 'q', ctrl.trans('blackCastlingQueenside'), true)
+          castleCheckBox(ctrl, 'q', 'O-O-O', true)
         ])
       ])
+    ]),
+    m('div', [
+      m('select#variants', {
+        onchange: function(e) {
+          ctrl.changeVariant(e.target.value);
+        }
+      }, [
+        ['standard', 'Standard'],
+        ['antichess', 'Antichess'],
+        ['atomic', 'Atomic'],
+        ['crazyhouse', 'Crazyhouse'],
+        ['horde', 'Horde'],
+        ['kingOfTheHill', 'King of the Hill'],
+        ['racingKings', 'Racing Kings'],
+        ['threeCheck', 'Three-check']
+      ].map(function(x) { return variant2option(x[0], x[1], ctrl) })
+      )
     ]),
     ctrl.embed ? m('div', [
       m('a.button.frameless', {
@@ -114,15 +143,15 @@ function controls(ctrl, fen) {
           }
         }, ctrl.trans('flipBoard')),
         looksLegit ? m('a.button.text[data-icon="A"]', {
-          href: editor.makeUrl('/analysis/', fen),
+          href: editor.makeUrl('/analysis/' + selectedVariant + '/', fen),
           rel: 'nofollow'
         }, ctrl.trans('analysis')) : m('span.button.disabled.text[data-icon="A"]', {
           rel: 'nofollow'
         }, ctrl.trans('analysis')),
         m('a.button', {
-          class: looksLegit ? '' : 'disabled',
+          class: (looksLegit && selectedVariant === 'standard') ? '' : 'disabled',
           onclick: function() {
-            if (ctrl.positionLooksLegit()) $.modal($('.continue_with'));
+            if (ctrl.positionLooksLegit() && selectedVariant === 'standard') $.modal($('.continue_with'));
           }
         },
         m('span.text[data-icon=U]', ctrl.trans('continueFromHere'))),
@@ -257,7 +286,7 @@ function makeCursor(selected) {
   if (selected === 'pointer') return 'pointer';
 
   var name = selected === 'trash' ? 'trash' : selected.join('-');
-  var url = lichess.assetUrl('/assets/cursors/' + name + '.cur');
+  var url = lichess.assetUrl('cursors/' + name + '.cur');
 
   return 'url(' + url + '), default !important';
 }

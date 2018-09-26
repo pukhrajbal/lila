@@ -1,6 +1,5 @@
 package lila.insight
 
-import org.joda.time.DateTime
 import play.twirl.api.Html
 import reactivemongo.bson._
 import play.api.libs.json._
@@ -29,6 +28,7 @@ object Dimension {
   import BSONHandlers._
   import Position._
   import Entry.{ BSONFields => F }
+  import lila.rating.BSONHandlers.perfTypeIdHandler
 
   case object Period extends Dimension[Period](
     "period", "Date", F.date, Game,
@@ -188,7 +188,7 @@ object Dimension {
   def filtersOf[X](d: Dimension[X], selected: List[X]): Bdoc = d match {
     case Dimension.MovetimeRange => selected match {
       case Nil => $empty
-      case xs => $doc(d.dbKey $in xs.flatMap(_.tenths.list))
+      case xs => $doc(d.dbKey $in xs.flatMap(_.tenths.toList))
     }
     case Dimension.Period => selected.sortBy(-_.days).headOption.fold($empty) { period =>
       $doc(d.dbKey $gt period.min)

@@ -5,7 +5,6 @@ import play.api.libs.json._
 import chess.format.FEN
 import chess.opening._
 import chess.variant.Variant
-import lila.common.PimpedJson._
 import lila.tree.Node.openingWriter
 
 case class AnaDests(
@@ -48,6 +47,5 @@ object AnaDests {
     variant = chess.variant.Variant orDefault ~d.str("variant")
     fen ← d str "fen"
     path ← d str "path"
-    chapterId = d str "ch"
-  } yield AnaDests(variant = variant, fen = FEN(fen), path = path, chapterId = chapterId)
+  } yield AnaDests(variant = variant, fen = FEN(fen), path = path, chapterId = d str "ch")
 }

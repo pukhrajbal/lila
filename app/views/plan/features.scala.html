@@ -37,9 +37,11 @@
 @side = {
 <div class="features_side">
   <h2>Free chess for everyone, forever!</h2>
-  <a href="@routes.Plan.index" class="button">Support lichess</a>
+  <a href="@routes.Plan.index" class="button">Support Lichess</a>
 </div>
 }
+
+@engineName = {Stockfish 9+}
 
 @base.layout(
 title = title,
@@ -48,7 +50,7 @@ moreCss = cssTag("features.css"),
 openGraph = lila.app.ui.OpenGraph(
 title = title,
 url = s"$netBaseUrl${routes.Plan.features.url}",
-description = "All of lichess features are free for all and forever. We do it for chess!").some) {
+description = "All of Lichess features are free for all and forever. We do it for chess!").some) {
 
 <div class="content_box features">
   <table>
@@ -69,10 +71,10 @@ description = "All of lichess features are free for all and forever. We do it fo
       <a href="@routes.Page.variantHome">9 Chess variants (Crazyhouse, Chess960, Horde, ...)</a>
       }
       @tr(custom("30 per day")) {
-      Deep Stockfish 8 server analysis
+      Deep @engineName server analysis
       }
       @tr(unlimited) {
-      Instant local Stockfish 8 analysis
+      Instant local @engineName analysis
       }
       @tr(unlimited) {
       <a href="https://lichess.org/blog/WN-gLzAAAKlI89Xn/thousands-of-stockfish-analysers">Cloud engine analysis</a>
@@ -81,28 +83,28 @@ description = "All of lichess features are free for all and forever. We do it fo
       <a href="https://lichess.org/blog/WFvLpiQAACMA8e9D/learn-from-your-mistakes">Learn from your mistakes</a>
       }
       @tr(unlimited) {
-      <a href="http://lichess.org/blog/V0KrLSkAAMo3hsi4/study-chess-the-lichess-way">Studies (shared and persistent analysis)</a>
+      <a href="https://lichess.org/blog/V0KrLSkAAMo3hsi4/study-chess-the-lichess-way">Studies (shared and persistent analysis)</a>
       }
       @tr(unlimited) {
-      <a href="http://lichess.org/blog/VmZbaigAABACtXQC/chess-insights">Chess insights (detailed analysis of your play)</a>
+      <a href="https://lichess.org/blog/VmZbaigAABACtXQC/chess-insights">Chess insights (detailed analysis of your play)</a>
       }
       @tr(check) {
       <a href="@routes.Learn.index">All chess basics lessons</a>
       }
       @tr(unlimited) {
-      <a href="@routes.Puzzle.home">Tactics puzzles from user games</a>
+      <a href="@routes.Puzzle.home">Tactical puzzles from user games</a>
       }
       @tr(unlimited) {
-      Opening explorer (20 million games!)
+      <a href="@routes.UserAnalysis.index()#explorer">Opening explorer</a> (62 million games!)
       }
       @tr(unlimited) {
-      6 men endgame tablebase
+      <a href="@routes.UserAnalysis.parse("QN4n1/6r1/3k4/8/b2K4/8/8/8_b_-_-")#explorer">7-piece endgame tablebase</a>
       }
       @tr(check) {
       Download/Upload any game as PGN
       }
       @tr(unlimited) {
-      <a href="@routes.Search.index(1)">Advanced search</a> through lichess 240 million games
+      <a href="@routes.Search.index(1)">Advanced search</a> through Lichess 900 million games
       }
       @tr(unlimited) {
       <a href="@routes.Video.index">Chess video library</a>
@@ -111,13 +113,16 @@ description = "All of lichess features are free for all and forever. We do it fo
       Forum, teams, messaging, friends, challenges
       }
       @tr(check) {
-      Available in 80+ languages
+      Available in <a href="https://crowdin.com/project/lichess">80+ languages</a>
       }
       @tr(check) {
       Light/dark theme, custom boards, pieces and background
       }
       @tr(check) {
       Zero ads
+      }
+      @tr(check) {
+      No tracking
       }
       @tr(unlimited) {
       <strong>All features to come, forever</strong>
@@ -131,13 +136,13 @@ description = "All of lichess features are free for all and forever. We do it fo
       Online and offline games, with 8 variants
       }
       @tr(unlimited) {
-      Bullet, Blitz, Classical and Correspondence chess
+      Bullet, Blitz, Rapid, Classical and Correspondence chess
       }
       @tr(unlimited) {
       <a href="@routes.Tournament.home(1)">Arena tournaments</a>
       }
       @tr(check) {
-      Board editor and analysis board with Stockfish 8
+      Board editor and analysis board with @engineName
       }
       @tr(unlimited) {
       <a href="@routes.Puzzle.home">Tactics puzzles</a>
@@ -159,11 +164,11 @@ description = "All of lichess features are free for all and forever. We do it fo
       }
     </tbody>
     @thead {
-    <h1>Support lichess</h1>
+    <h1>Support Lichess</h1>
     }
     <tbody class="support">
       <tr>
-        <th>Contribute to lichess.org and<br />get a cool looking Patron icon</th>
+        <th>Contribute to Lichess and<br />get a cool looking Patron icon</th>
         <td>-</td>
         <td><span data-icon="@patronIconChar" class="is is-green text check">Yes</span></td>
       </tr>
@@ -177,12 +182,12 @@ description = "All of lichess features are free for all and forever. We do it fo
   <p class="explanation">
     <strong>Yes, both accounts have the same features!</strong>
     <br />
-    That is because lichess is built for the love of chess.<br />
+    That is because Lichess is built for the love of chess.<br />
     We believe every chess player deserves the best, and so:
     <br /><br />
     <strong>all features are free for everybody, forever!</strong>
     <br />
-    If you love lichess, <a class="button" href="@routes.Plan.index">support us with a Patron account!</a>
+    If you love Lichess, <a class="button" href="@routes.Plan.index">support us with a Patron account!</a>
   </p>
 </div>
 }

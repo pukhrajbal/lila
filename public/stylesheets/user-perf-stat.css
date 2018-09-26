@@ -101,7 +101,7 @@
   border-bottom: 1px solid #ccc;
 }
 #perfStat .highlow a,
-#perfStat .highlow .na {
+#perfStat .highlow span {
   font-size: 1.2em;
   text-indent: 20px;
   display: inline-block;
@@ -136,4 +136,15 @@
 }
 #perfStat .playStreak {
   white-space: nowrap;
+}
+#perfStat .rating_history {
+  left: -10px;
+  display: block;
+  width: 100%;
+  height: 339px;
+}
+#perfStat .rating_history .spinner {
+  width: 90px;
+  height: 90px;
+  margin: 120px auto 0 auto;
 }

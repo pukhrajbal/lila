@@ -71,16 +71,16 @@ case class Simul(
     startedAt = DateTime.now.some,
     applicants = Nil,
     pairings = applicants collect {
-    case a if a.accepted => SimulPairing(a.player)
-  },
+      case a if a.accepted => SimulPairing(a.player)
+    },
     hostSeenAt = none
   )
 
   def updatePairing(gameId: String, f: SimulPairing => SimulPairing) = copy(
     pairings = pairings collect {
-    case p if p.gameId == gameId => f(p)
-    case p => p
-  }
+      case p if p.gameId == gameId => f(p)
+      case p => p
+    }
   ).finishIfDone
 
   def ejectCheater(userId: String): Option[Simul] =
@@ -109,7 +109,8 @@ case class Simul(
 
   def variantRich = variants.size > 3
 
-  def isHost(userOption: Option[User]) = userOption ?? (_.id == hostId)
+  def isHost(userOption: Option[User]): Boolean = userOption ?? isHost
+  def isHost(user: User): Boolean = user.id == hostId
 
   def playingPairings = pairings filterNot (_.finished)
 
@@ -126,11 +127,18 @@ case class Simul(
     isCreated &&
       (hostRating >= 2400 || hostTitle.isDefined) &&
       applicants.size < 80
+
+  def wins = pairings.count(p => p.finished && p.wins.has(false))
+  def draws = pairings.count(p => p.finished && p.wins.isEmpty)
+  def losses = pairings.count(p => p.finished && p.wins.has(true))
+  def ongoing = pairings.count(_.ongoing)
 }
 
 object Simul {
 
   type ID = String
+
+  case class OnStart(simul: Simul)
 
   private def makeName(host: User) =
     if (host.title.isDefined) host.titleUsername

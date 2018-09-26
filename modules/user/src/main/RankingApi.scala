@@ -19,14 +19,13 @@ final class RankingApi(
   import RankingApi._
   private implicit val rankingBSONHandler = Macros.handler[Ranking]
 
-  def save(userId: User.ID, perfType: Option[PerfType], perfs: Perfs): Funit =
+  def save(user: User, perfType: Option[PerfType], perfs: Perfs): Funit =
     perfType ?? { pt =>
-      save(userId, pt, perfs(pt))
+      save(user, pt, perfs(pt))
     }
 
-  def save(userId: User.ID, perfType: PerfType, perf: Perf): Funit =
-    (perf.nb >= 2) ?? coll.update($id(makeId(userId, perfType)), $doc(
-      "user" -> userId,
+  def save(user: User, perfType: PerfType, perf: Perf): Funit =
+    (user.rankable && perf.nb >= 2) ?? coll.update($id(makeId(user.id, perfType)), $doc(
       "perf" -> perfType.id,
       "rating" -> perf.intRating,
       "prog" -> perf.progress,
@@ -73,10 +72,10 @@ final class RankingApi(
 
     private type Rank = Int
 
-    def of(userId: User.ID): Fu[Map[Perf.Key, Int]] =
+    def of(userId: User.ID): Fu[Map[Perf.Key, Rank]] =
       lila.common.Future.traverseSequentially(PerfType.leaderboardable) { perf =>
         cache.get(perf.id) map { _ get userId map (perf.key -> _) }
-      } map (_.flatten.toMap)
+      } map (_.flatten.toMap) nevermind
 
     private val cache = asyncCache.multi[Perf.ID, Map[User.ID, Rank]](
       name = "rankingApi.weeklyStableRanking",
@@ -88,11 +87,12 @@ final class RankingApi(
     private def compute(perfId: Perf.ID): Fu[Map[User.ID, Rank]] =
       coll.find(
         $doc("perf" -> perfId, "stable" -> true),
-        $doc("user" -> true, "_id" -> false)
-      ).sort($doc("rating" -> -1)).cursor[Bdoc](readPreference = ReadPreference.secondaryPreferred).
-        fold(1 -> Map.newBuilder[User.ID, Rank]) {
+        $doc("_id" -> true)
+      ).sort($doc("rating" -> -1)).cursor[Bdoc](readPreference = ReadPreference.secondaryPreferred)
+        .fold(1 -> Map.newBuilder[User.ID, Rank]) {
           case (state @ (rank, b), doc) =>
-            doc.getAs[User.ID]("user").fold(state) { user =>
+            doc.getAs[String]("_id").fold(state) { id =>
+              val user = id takeWhile (':' !=)
               b += (user -> rank)
               (rank + 1) -> b
             }
@@ -115,7 +115,7 @@ final class RankingApi(
     // from 800 to 2500 by Stat.group
     private def compute(perfId: Perf.ID): Fu[List[NbUsers]] =
       lila.rating.PerfType(perfId).exists(lila.rating.PerfType.leaderboardable.contains) ?? {
-        coll.aggregateWithReadPreference(
+        coll.aggregateList(
           Match($doc("perf" -> perfId)),
           List(
             Project($doc(
@@ -129,9 +129,10 @@ final class RankingApi(
             )),
             GroupField("r")("nb" -> SumValue(1))
           ),
+          maxDocs = Int.MaxValue,
           ReadPreference.secondaryPreferred
         ).map { res =>
-            val hash: Map[Int, NbUsers] = res.firstBatch.flatMap { obj =>
+            val hash: Map[Int, NbUsers] = res.flatMap { obj =>
               for {
                 rating <- obj.getAs[Int]("_id")
                 nb <- obj.getAs[NbUsers]("nb")
@@ -147,5 +148,7 @@ final class RankingApi(
 
 object RankingApi {
 
-  private case class Ranking(user: String, rating: Int, prog: Option[Int])
+  private case class Ranking(_id: String, rating: Int, prog: Option[Int]) {
+    def user = _id.takeWhile(':' !=)
+  }
 }

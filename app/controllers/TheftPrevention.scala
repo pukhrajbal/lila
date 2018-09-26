@@ -9,16 +9,16 @@ import play.api.mvc._
 private[controllers] trait TheftPrevention { self: LilaController =>
 
   protected def PreventTheft(pov: Pov)(ok: => Fu[Result])(implicit ctx: Context): Fu[Result] =
-    isTheft(pov).fold(fuccess(Redirect(routes.Round.watcher(pov.gameId, pov.color.name))), ok)
+    if (isTheft(pov)) fuccess(Redirect(routes.Round.watcher(pov.gameId, pov.color.name)))
+    else ok
 
   protected def isTheft(pov: Pov)(implicit ctx: Context) = pov.game.isPgnImport || pov.player.isAi || {
     (pov.player.userId, ctx.userId) match {
       case (Some(playerId), None) => true
-      case (Some(playerId), Some(userId)) =>
-        playerId != userId && !(ctx.me ?? Granter.superAdmin)
+      case (Some(playerId), Some(userId)) => playerId != userId
       case (None, _) =>
         !lila.api.Mobile.Api.requested(ctx.req) &&
-          !ctx.req.cookies.get(AnonCookie.name).map(_.value).contains(pov.playerId)
+          !ctx.req.cookies.get(AnonCookie.name).exists(_.value == pov.playerId)
     }
   }
 

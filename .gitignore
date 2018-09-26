@@ -1,25 +1,12 @@
 conf/application.conf
 bin/dev
+bin/dev.bat
 logs
 project/project
 project/target
 public/trans
 public/compiled
 public/vendor/stockfish
-public/images/?N-bg.svg
-public/piece/alpha
-public/piece/cburnett
-public/piece/chess7
-public/piece/chessnut
-public/piece/companion
-public/piece/fantasy
-public/piece/letter
-public/piece/merida
-public/piece/mono
-public/piece/pirouetti
-public/piece/reillycraig
-public/piece/spatial
-public/piece/shapes
 target
 bin/.translate_version
 data/
@@ -27,7 +14,6 @@ dist/
 node_modules/
 local/
 ui/*/npm-debug.log
-.vagrant
 hs_*.log
 
 RUNNING_PID

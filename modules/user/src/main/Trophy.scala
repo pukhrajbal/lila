@@ -19,12 +19,12 @@ case class Trophy(
 object Trophy {
 
   sealed abstract class Kind(
-    val key: String,
-    val name: String,
-    val icon: Option[String],
-    val url: Option[String],
-    val klass: Option[String],
-    val order: Int
+      val key: String,
+      val name: String,
+      val icon: Option[String],
+      val url: Option[String],
+      val klass: Option[String],
+      val order: Int
   )
 
   object Kind {
@@ -119,25 +119,33 @@ object Trophy {
       order = 101
     )
 
-    object Streamer extends Kind(
-      key = "streamer",
-      name = "Lichess streamer",
-      icon = "&#xe003;".some,
-      url = "//lichess.org/help/stream-on-lichess".some,
+    object Verified extends Kind(
+      key = "verified",
+      name = "Verified account",
+      icon = "E".some,
+      url = none,
       "icon3d".some,
       order = 102
     )
 
+    object ZHWC extends Kind(
+      key = "zhwc",
+      name = "Crazyhouse champion",
+      icon = none,
+      url = "//lichess.org/blog/WMnMzSEAAMgA3oAW/crazyhouse-world-championship-the-candidates".some,
+      klass = none,
+      order = 1
+    )
+
     val all = List(
-      ZugMiracle,
+      Developer, Moderator, Verified,
+      MarathonTopHundred, MarathonTopTen, MarathonTopFifty, MarathonWinner,
+      ZugMiracle, ZHWC,
       WayOfBerserk,
       MarathonSurvivor,
-      MarathonWinner, MarathonTopTen, MarathonTopFifty, MarathonTopHundred,
-      BongcloudWarrior,
-      Developer, Moderator,
-      Streamer
+      BongcloudWarrior
     )
-    def byKey(key: String) = all find (_.key == key)
+    val byKey: Map[String, Kind] = all.map { k => k.key -> k }(scala.collection.breakOut)
   }
 
   def make(userId: String, kind: Trophy.Kind) = Trophy(

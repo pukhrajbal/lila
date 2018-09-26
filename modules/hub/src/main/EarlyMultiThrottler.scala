@@ -46,7 +46,7 @@ final class EarlyMultiThrottler(
       work.timeout.orElse(executionTimeout).fold(work.run()) { timeout =>
         work.run().withTimeout(
           duration = timeout,
-          error = lila.common.LilaException(s"EarlyMultiThrottler timed out after $timeout")
+          error = lila.base.LilaException(s"EarlyMultiThrottler timed out after $timeout")
         )
       }
     }
@@ -56,10 +56,10 @@ final class EarlyMultiThrottler(
 object EarlyMultiThrottler {
 
   case class Work(
-    id: String,
-    run: () => Funit,
-    cooldown: FiniteDuration, // how long to wait after running, before next run
-    timeout: Option[FiniteDuration]
+      id: String,
+      run: () => Funit,
+      cooldown: FiniteDuration, // how long to wait after running, before next run
+      timeout: Option[FiniteDuration]
   ) // how long to wait before timing out
 
   def work(

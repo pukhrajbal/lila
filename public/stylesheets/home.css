@@ -32,7 +32,12 @@ div.lobby_and_ground {
   width: 512px;
   height: 512px;
   text-align: center;
-  background: rgba(255,255,255,0.7);
+  background: rgba(255,255,255,0.8);
+  font-size: 1.1em;
+}
+body.dark #lobby_playban,
+body.dark #lobby_current_game {
+  background: rgba(0,0,0,0.8);
 }
 #lobby_playban h2,
 #lobby_current_game h2 {
@@ -42,6 +47,15 @@ div.lobby_and_ground {
 }
 #lobby_playban a {
   color: #3893E8;
+}
+#lobby_playban ul {
+  margin: 10px auto;
+  display: inline-block;
+  text-align: left;
+}
+#lobby_playban ul li {
+  list-style: disc outside;
+  font-size: 1.1em;
 }
 .current_game #hooks_wrap {
   visibility: hidden;
@@ -90,6 +104,8 @@ body.dark #hooks_wrap {
   border: 1px solid #ccc;
   background: #dadada;
   transition: 0.13s;
+  white-space: nowrap;
+  overflow: hidden;
 }
 #hooks_wrap .tabs a:hover {
   background: #f0f0f0;
@@ -145,11 +161,13 @@ body.dark #hooks_wrap .hook_filter {
   white-space: nowrap;
 }
 #hooks_wrap .hook_filter td {
-  padding: 25px 0;
+  padding: 20px 0;
 }
 #hooks_wrap .hook_filter td:first-child {
-  font-size: 1.3em;
+  font-size: 1.1em;
   padding-right: 30px;
+  width: 120px;
+  white-space: normal;
 }
 #hooks_wrap .hook_filter .checkable {
   padding: 4.3px 0;
@@ -331,60 +349,38 @@ body.dark #hooks_wrap .hook_filter {
 }
 #hook {
   display: none;
-  width: 120px;
-  height: 120px;
   color: #444;
-  text-align: center;
-  border: none;
   box-shadow: 0 0 9px #333;
   background: #d0d0d0;
+  cursor: default;
+  position: absolute;
+  z-index: 900000;
+}
+#hook .inner {
+  display: inline-block;
+  text-align: center;
+  font-size: 1.25em;
+  padding-bottom: 5px;
 }
 #hook .opponent {
-  display: block;
-  height: 20px;
-  line-height: 20px;
-  padding: 5px 0;
   background: #666;
   color: #eee;
-  overflow: hidden;
+  min-width: 120px;
+  padding: 5px;
+  margin-bottom: 5px;
 }
-#hook .clearfix {
-  width: 100%;
-  height: 30px;
-}
-#hook .rating,
-#hook .clock {
-  display: block;
-  width: 60px;
-  height: 20px;
-  padding: 5px 0;
-  font-size: 1.25em;
-  font-weight: bold;
-}
-#hook .rating {
-  float: right;
-  color: #bbb;
-  background: #666;
-}
-#hook .clock {
-  float: left;
-  color: #555;
-}
-#hook .clock.nope {
-  font-size: 2.3em;
-  padding-top: 3px;
-  line-height: 20px;
-}
-#hook .mode {
-  margin-top: 40px;
-}
-#hook .mode {
-  font-size: 1.25em;
+#hook .opponent,
+#hook span {
   display: block;
 }
-#hook .varicon::before {
-  font-size: 30px;
-  margin-right: 10px;
+
+#hooks_wrap .redir {
+  background: rgba(128,128,128,0.5);
+  display: flex;
+}
+#hooks_wrap .redir .spinner {
+  width: 100px;
+  height: 100px;
 }
 /*********** POOLS *********/
 
@@ -522,6 +518,8 @@ div.blog.undertable time {
 }
 #lichess .enterable_list td:first-child {
   padding-left: 1em;
+  overflow: hidden;
+  max-width: 250px;
 }
 #enterable_tournaments td:last-child {
   padding-right: 10px;
@@ -545,6 +543,9 @@ div.blog.undertable time {
 }
 #lichess .enterable_list td:last-child {
   width: 20px;
+}
+#lichess .enterable_list .rated {
+  color: #d59120;
 }
 div.new_posts li {
   margin: 0.6em 0;
@@ -594,7 +595,7 @@ div.lichess_overboard .color_submits .spinner {
   color: #d59120;
 }
 #streams_on_air a.stream span:before {
-  vertical-align: -3px;
+  font-size: 1.5em;
 }
 .tour_spotlight {
   display: flex;
@@ -631,9 +632,8 @@ div.lichess_overboard .color_submits .spinner {
 }
 .tour_spotlight img.img {
   width: 40px;
-  heigth: 40px;
   filter: brightness(9);
-  -webkit-filter: brightness(9);
+  filter: brightness(9);
 }
 .tour_spotlight i.img,
 .tour_spotlight .img.icon {
@@ -698,11 +698,6 @@ body.dark .tour_spotlight .img {
 body.dark .tour_spotlight:hover .img {
   opacity: 1;
 }
-#site_header a.store {
-  display: block;
-  margin-top: 20px;
-  opacity: 0.6;
-}
 #timeline {
   flex: 1 1;
   margin-top: 10px;
@@ -721,7 +716,7 @@ body.dark .tour_spotlight:hover .img {
     width: 200px;
   }
   #featured_game {
-    display: none;
+    visibility: hidden;
   }
 }
 #timeline .entry {
@@ -751,6 +746,9 @@ body.dark .tour_spotlight:hover .img {
   margin: 5px;
   font-weight: normal;
   display: block;
+}
+.about-side {
+  margin-top: 15px;
 }
 .donation {
   display: flex;
@@ -817,4 +815,10 @@ body.dark .tour_spotlight:hover .img {
 }
 .donation a:hover i::before {
   opacity: 1;
+}
+.about-footer {
+  width: 512px;
+  margin-top: 15px;
+  text-align: center;
+  opacity: 0.8;
 }

@@ -4,6 +4,9 @@
 
 @moreCss = {
 @cssTag("analyse.css")
+@if(!pov.game.synthetic && pov.game.playable && ctx.me.flatMap(pov.game.player).isDefined) {
+@cssTag("forecast.css")
+}
 }
 
 @moreJs = {
@@ -11,8 +14,10 @@
 @embedJs {
 lichess = lichess || {};
 lichess.user_analysis = {
-data: @Html(play.api.libs.json.Json.stringify(data)),
-i18n: @userAnalysisI18n(),
+data: @safeJson(data),
+i18n: @userAnalysisI18n(
+withForecast = !pov.game.synthetic && pov.game.playable && ctx.me.flatMap(pov.game.player).isDefined
+),
 explorer: {
 endpoint: "@explorerEndpoint",
 tablebaseEndpoint: "@tablebaseEndpoint"
@@ -38,7 +43,7 @@ tablebaseEndpoint: "@tablebaseEndpoint"
 }
 
 @base.layout(
-title = trans.analysis.str(),
+title = trans.analysis.txt(),
 moreCss = moreCss,
 moreJs = moreJs,
 side = side.some,

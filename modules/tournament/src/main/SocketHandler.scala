@@ -5,12 +5,12 @@ import akka.pattern.ask
 
 import actorApi._
 import akka.actor.ActorSelection
-import lila.common.PimpedJson._
+import lila.chat.Chat
 import lila.hub.actorApi.map._
 import lila.security.Flood
 import lila.socket.actorApi.{ Connected => _, _ }
 import lila.socket.Handler
-import lila.socket.Socket.Uid
+import lila.socket.Socket.{ Uid, SocketVersion }
 import lila.user.User
 import makeTimeout.short
 
@@ -24,13 +24,14 @@ private[tournament] final class SocketHandler(
   def join(
     tourId: String,
     uid: Uid,
-    user: Option[User]
+    user: Option[User],
+    version: Option[SocketVersion]
   ): Fu[Option[JsSocketHandler]] =
     TournamentRepo.exists(tourId) flatMap {
       _ ?? {
         for {
           socket ← socketHub ? Get(tourId) mapTo manifest[ActorRef]
-          join = Join(uid, user = user)
+          join = Join(uid, user, version)
           handler ← Handler(hub, socket, uid, join) {
             case Connected(enum, member) =>
               (controller(socket, tourId, uid, member), enum, member)
@@ -45,11 +46,12 @@ private[tournament] final class SocketHandler(
     uid: Uid,
     member: Member
   ): Handler.Controller = ({
-    case ("p", o) => o int "v" foreach { v => socket ! PingVersion(uid.value, v) }
+    case ("p", o) => socket ! Ping(uid, o)
   }: Handler.Controller) orElse lila.chat.Socket.in(
-    chatId = tourId,
+    chatId = Chat.Id(tourId),
     member = member,
     socket = socket,
-    chat = chat
+    chat = chat,
+    publicSource = lila.hub.actorApi.shutup.PublicSource.Tournament(tourId).some
   )
 }

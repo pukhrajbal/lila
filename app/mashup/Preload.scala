@@ -9,7 +9,8 @@ import lila.playban.TempBan
 import lila.simul.Simul
 import lila.timeline.Entry
 import lila.tournament.{ Tournament, Winner }
-import lila.tv.{ Tv, StreamOnAir }
+import lila.tv.Tv
+import lila.streamer.LiveStreams
 import lila.user.LightUserApi
 import lila.user.User
 import play.api.libs.json._
@@ -18,16 +19,16 @@ final class Preload(
     tv: Tv,
     leaderboard: Unit => Fu[List[User.LightPerf]],
     tourneyWinners: Fu[List[Winner]],
-    timelineEntries: String => Fu[List[Entry]],
-    streamsOnAir: () => Fu[List[StreamOnAir]],
-    dailyPuzzle: () => Fu[Option[lila.puzzle.DailyPuzzle]],
+    timelineEntries: String => Fu[Vector[Entry]],
+    liveStreams: () => Fu[LiveStreams],
+    dailyPuzzle: lila.puzzle.Daily.Try,
     countRounds: () => Int,
     lobbyApi: lila.api.LobbyApi,
     getPlayban: String => Fu[Option[TempBan]],
     lightUserApi: LightUserApi
 ) {
 
-  private type Response = (JsObject, List[Entry], List[MiniForumPost], List[Tournament], List[Event], List[Simul], Option[Game], List[User.LightPerf], List[Winner], Option[lila.puzzle.DailyPuzzle], List[StreamOnAir], List[lila.blog.MiniPost], Option[TempBan], Option[Preload.CurrentGame], Int)
+  private type Response = (JsObject, Vector[Entry], List[MiniForumPost], List[Tournament], List[Event], List[Simul], Option[Game], List[User.LightPerf], List[Winner], Option[lila.puzzle.DailyPuzzle], LiveStreams.WithTitles, List[lila.blog.MiniPost], Option[TempBan], Option[Preload.CurrentGame], Int)
 
   def apply(
     posts: Fu[List[MiniForumPost]],
@@ -44,15 +45,15 @@ final class Preload(
       (ctx.userId ?? timelineEntries) zip
       leaderboard(()) zip
       tourneyWinners zip
-      dailyPuzzle() zip
-      streamsOnAir() zip
+      (ctx.noBot ?? dailyPuzzle()) zip
+      liveStreams().dmap(_.autoFeatured.withTitles(lightUserApi)) zip
       (ctx.userId ?? getPlayban) flatMap {
         case (data, povs) ~ posts ~ tours ~ events ~ simuls ~ feat ~ entries ~ lead ~ tWinners ~ puzzle ~ streams ~ playban =>
           val currentGame = ctx.me ?? Preload.currentGame(povs, lightUserApi.sync) _
           lightUserApi.preloadMany {
             tWinners.map(_.userId) :::
               posts.flatMap(_.userId) :::
-              entries.flatMap(_.userIds)
+              entries.flatMap(_.userIds).toList
           } inject
             (data, entries, posts, tours, events, simuls, feat, lead, tWinners, puzzle, streams, Env.blog.lastPostCache.apply, playban, currentGame, countRounds())
       }
@@ -70,12 +71,12 @@ object Preload {
   def currentGame(povs: List[Pov], lightUser: lila.common.LightUser.GetterSync)(user: User): Option[CurrentGame] =
     povs.collectFirst {
       case pov if pov.game.nonAi && pov.game.hasClock && pov.isMyTurn =>
-        val opponent = lila.game.Namer.playerString(pov.opponent)(lightUser)
+        val opponent = lila.game.Namer.playerText(pov.opponent)(lightUser)
         CurrentGame(
           pov = pov,
           opponent = opponent,
           json = Json.obj(
-            "id" -> pov.game.id,
+            "id" -> pov.gameId,
             "color" -> pov.color.name,
             "opponent" -> opponent
           )
